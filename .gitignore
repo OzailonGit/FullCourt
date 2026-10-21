@@ -13,3 +13,6 @@ data/processed/*.meta.json
 # Markdown files are kept local and not committed, except the README.
 *.md
 !README.md
+
+# Screenshots and page snapshots from browser-automation checks.
+.playwright-mcp/
