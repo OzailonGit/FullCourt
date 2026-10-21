@@ -109,7 +109,7 @@ class ResearchEngine:
 
         started = time.perf_counter()
         stat_fits, goals = self._statistical_fit(plan, candidates, reference, method, messages)
-        similarities = [matches[c["player_id"]].similarity if c["player_id"] in matches else None for c in candidates]
+        similarities = [matches[c["player_id"]].best_by_type if c["player_id"] in matches else None for c in candidates]
 
         if method == "stats" and all(s is None for s in stat_fits):
             messages.append("The question has no statistical goal or filter to rank on.")

@@ -7,7 +7,7 @@ The metadata file maps each vector row back to its document_id and player_id.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -38,6 +38,7 @@ class ChunkHit:
     document_id: str
     player_id: str
     similarity: float
+    description_type: str
 
 
 @dataclass
@@ -45,6 +46,7 @@ class PlayerSemanticMatch:
     player_id: str
     similarity: float  # best chunk similarity for this player
     hits: list[ChunkHit]  # this player's chunks, most similar first
+    best_by_type: dict[str, float] = field(default_factory=dict)
 
 
 class SemanticIndex:
@@ -57,13 +59,16 @@ class SemanticIndex:
 
     @classmethod
     def build(cls, documents: list[dict], embedder: Embedder) -> SemanticIndex:
-        """documents: dicts with document_id, player_id, text."""
+        """documents: dicts with document_id, player_id, text and (optionally) description_type."""
         vectors = embedder.encode([d["text"] for d in documents], is_query=False) if documents else np.zeros((0, 1), "float32")
         dim = vectors.shape[1] if len(documents) else 1
         index = faiss.IndexFlatIP(dim)
         if len(documents):
             index.add(vectors)
-        metadata = [{"document_id": d["document_id"], "player_id": d["player_id"]} for d in documents]
+        metadata = [
+            {"document_id": d["document_id"], "player_id": d["player_id"], "description_type": d.get("description_type", "description")}
+            for d in documents
+        ]
         return cls(index, metadata, embedder)
 
     @classmethod
@@ -101,10 +106,10 @@ class SemanticIndex:
             if row < 0:
                 continue
             meta = self.metadata[row]
-            hit = ChunkHit(meta["document_id"], meta["player_id"], float(score))
+            hit = ChunkHit(meta["document_id"], meta["player_id"], float(score), meta.get("description_type", "description"))
             match = matches.get(hit.player_id)
             if match is None:
-                matches[hit.player_id] = PlayerSemanticMatch(hit.player_id, hit.similarity, [hit])
-            else:
-                match.hits.append(hit)  # results arrive in descending score order
+                match = matches[hit.player_id] = PlayerSemanticMatch(hit.player_id, hit.similarity, [])
+            match.hits.append(hit)  # results arrive in descending score order, so the first hit per type is its best
+            match.best_by_type.setdefault(hit.description_type, hit.similarity)
         return matches

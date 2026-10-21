@@ -13,6 +13,7 @@ from src import pipeline
 from src.generation.explanations import goal_label, percentile_text
 from src.retrieval.hybrid import format_stat
 from src.schemas import METRICS
+from src.stats.profiles import DESCRIPTION_TYPE as STAT_PROFILE_TYPE
 from src.stats.queries import available_seasons
 
 METHOD_LABELS = {"hybrid": "Hybrid (statistics + descriptions)", "stats": "Statistics only", "semantic": "Descriptions only (semantic)"}
@@ -182,9 +183,15 @@ for player in result.results:
                 st.caption("No description of this player is available in the corpus.")
             for passage in player.passages:
                 st.markdown(f"> {passage.text}")
+                if passage.description_type == STAT_PROFILE_TYPE:
+                    st.caption(
+                        f"Stat-based profile written from {stats['season']} Basketball-Reference numbers by a fixed "
+                        f"template, not scouting text · similarity {passage.similarity:.2f} · `{passage.document_id}`"
+                    )
+                    continue
                 revised = f", revision of {passage.published_at[:10]}" if passage.published_at else ""
                 st.caption(
-                    f"[{passage.source_name} — {passage.source_section}]({passage.source_url}){revised} · "
+                    f"[{passage.source_name}: {passage.source_section}]({passage.source_url}){revised} · "
                     f"{passage.description_type} · {passage.license} · similarity {passage.similarity:.2f} · `{passage.document_id}`"
                 )
 

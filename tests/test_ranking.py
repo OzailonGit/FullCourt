@@ -96,3 +96,18 @@ def test_upper_bound_filter_ranks_fewer_turnovers_first():
     candidates = [{"turnovers_per_game": 1.0}, {"turnovers_per_game": 2.5}]
     scores = ranking.metric_goal_scores(candidates, {"turnovers_per_game": "low"})
     assert scores[0][0].score > scores[1][0].score
+
+
+def test_semantic_scores_are_scaled_per_description_type_and_averaged():
+    evidence = [
+        {"encyclopedia": 0.80, "stat-based profile": 0.60},  # top prose match, weakest profile
+        {"stat-based profile": 0.70},                          # best profile, no prose
+        {"stat-based profile": 0.65},
+        {"encyclopedia": 0.70, "stat-based profile": 0.65},
+    ]
+    scaled = ranking.scale_semantic(evidence, "zero")
+    assert scaled[1] == pytest.approx(1.0)
+    assert scaled[0] == pytest.approx((1.0 + 0.0) / 2)
+    assert scaled[3] == pytest.approx((0.0 + 0.5) / 2)
+    results = {r.player_id: r for r in ranking.combine(["a", "b", "c", "d"], [None] * 4, evidence, None, 0.6, 0.4)}
+    assert results["a"].semantic_similarity == pytest.approx(0.80)  # raw best similarity is still reported

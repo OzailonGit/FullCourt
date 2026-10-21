@@ -1,9 +1,9 @@
 # FullCourt: an NBA research assistant
 
 FullCourt answers questions like "who are the efficient scoring guards that can also run an offense?"
-by combining two kinds of evidence: hard numbers from a stats database, and written descriptions of
-how players actually play. Every number you see comes from the database, and every claim about
-playing style links back to the passage it came from.
+by combining two kinds of evidence: hard numbers from a stats database, and descriptions of how
+players actually play. Every number you see comes from the database, and every claim about playing
+style links back to the passage it came from.
 
 I built it as a portfolio project to explore hybrid retrieval, meaning SQL and vector search working
 together, and to see how far you can keep an LLM honest by only letting it talk about evidence it
@@ -13,10 +13,10 @@ was handed. It covers one season (2025-26) and doesn't train any models.
 
 1. **Parsing.** The question is turned into a structured search plan: season, positions, explicit
    numeric filters, ranking preferences and a short description of the playing style to look for.
-   A local LLM does this when one is available. Otherwise a rule-based parser takes over.
+   An LLM does this when one is available. Otherwise a rule-based parser takes over.
 2. **Stats lookup.** SQL applies the filters and pulls each candidate's numbers.
-3. **Style search.** The style description is embedded and compared against player-profile passages
-   stored in a FAISS index.
+3. **Style search.** The style description is embedded and compared against style passages stored
+   in a FAISS index: Wikipedia profiles where they exist, plus a stat-based profile for every player.
 4. **Ranking.** Each player gets a statistical fit score and a style relevance score, blended 60/40
    into a final score. You can see the full breakdown for every result.
 5. **Explanation.** The LLM writes a short explanation from an evidence package for each player. A
@@ -33,7 +33,8 @@ pip install -r requirements.txt
 
 python scripts/import_stats.py          # downloads 2025-26 stats from Basketball-Reference into SQLite
 python scripts/import_descriptions.py   # pulls Wikipedia player-profile sections (about 5 minutes, cached)
-python scripts/build_index.py           # embeds the passages and builds the FAISS index
+python scripts/build_stat_profiles.py   # writes a stat-based style profile for every player
+python scripts/build_index.py           # embeds all passages and builds the FAISS index
 
 streamlit run app.py
 pytest
@@ -72,23 +73,43 @@ results takes 20 seconds or more. The very first call after startup is slower.
 
 ## Where the data comes from
 
-**Stats** come from Basketball-Reference's
-[per-game](https://www.basketball-reference.com/leagues/NBA_2026_per_game.html) and advanced tables
-for the 2025-26 regular season: 582 players in all. When a player was traded, I keep their combined
-season row and record each team they played for.
+**Stats** come from four Basketball-Reference tables for the 2025-26 regular season, covering all
+582 players:
 
-**Playing-style descriptions** come from the "Player profile" (or "Playing style") sections of
-English Wikipedia articles, which are licensed CC BY-SA 4.0. Each passage keeps a link to the exact
-article revision it was taken from, along with the revision date.
+- [per-game](https://www.basketball-reference.com/leagues/NBA_2026_per_game.html) and advanced
+  stats for the basics (points, assists, true shooting, usage and so on)
+- [shooting](https://www.basketball-reference.com/leagues/NBA_2026_shooting.html), which says where a
+  player's shots come from (at the rim, short range, mid-range, threes, corner threes, dunks) and
+  how many of their makes were assisted
+- [play-by-play](https://www.basketball-reference.com/leagues/NBA_2026_play-by-play.html), which
+  estimates how a player's minutes split across the five positions and counts shooting fouls drawn,
+  and-ones, charges drawn and the kinds of turnovers they commit
 
-None of the descriptions are written by a model. If a player doesn't have a profile section, the
-app says there's no style evidence for them instead of making something up.
+When a player was traded, I keep their combined season row and record each team they played for.
+
+**Playing-style text** comes from two places, and the app always tells you which one you're
+looking at:
+
+- **Wikipedia profiles.** The "Player profile" (or "Playing style") sections of English Wikipedia
+  articles, licensed CC BY-SA 4.0. Each passage keeps a link to the exact article revision it was
+  taken from.
+- **Stat-based profiles.** A short write-up for every player, built from their own shooting and
+  play-by-play numbers by a fixed template. It reads like "83% of shots at the rim, 33% dunks; 77%
+  of made twos assisted" and ends with style tags such as "rim-running finisher and lob threat".
+  The tags come from simple percentile rules (in `src/stats/profiles.py`) applied against rotation
+  players, and players with too small a sample get no tags at all.
+
+No style text is written by an LLM. The stat-based profiles exist because Wikipedia only covers
+well-known players, but they are restated numbers, not scouting, and the UI and explanations label
+them that way.
 
 A few practical notes:
 
 - Percentages and rates are stored as fractions, so a 61.6% true shooting mark is `0.616`.
-  Basketball-Reference reports usage, assist, turnover, rebound, steal and block rates in percentage
-  points, so the import divides those by 100.
+  Basketball-Reference reports usage, assist, turnover, rebound, steal and block rates and the
+  position estimates in percentage points, so the import divides those by 100.
+- The play-by-play counts (fouls drawn, charges, turnover types) are season totals at the source,
+  so the import converts them to per-game numbers.
 - Missing values stay `NULL`. They're never filled in with zero.
 - The scraped pages, the database and the index aren't committed. The scripts rebuild them.
   Basketball-Reference data is used here for a non-commercial demo, so check their terms before
@@ -96,11 +117,18 @@ A few practical notes:
 
 ### Description coverage
 
-This is the biggest weakness of the current dataset. Of the 406 players who meet the default
-eligibility bar (at least 20 games and 10 minutes per game), only **48 have a Wikipedia profile
-section**, which works out to 110 passages. Another 347 have articles without one, and 11 couldn't
-be matched to an article with confidence (mostly names with initials, like P.J. Washington). The
-players who do have profiles are mostly stars, so style evidence is thin for role players.
+Wikipedia on its own was the biggest weakness of the first version. Of the 406 players who meet the
+default eligibility bar (at least 20 games and 10 minutes per game), only **48 have a Wikipedia
+profile section**, which works out to 110 passages. Another 347 have articles without one, and 11
+couldn't be matched to an article with confidence (mostly names with initials, like P.J.
+Washington). Those 48 are mostly stars, so role players had no style evidence and sank in the
+rankings.
+
+The stat-based profiles close that gap: every one of the 582 players now has one, which brings the
+index to 692 passages. Before, "rim-running bigs who catch lobs" returned players with Wikipedia
+articles regardless of position. Now it returns centers like Drew Eubanks, Neemias Queta and Jarrett
+Allen, and "3-and-D wings" turns up role players like Reed Sheppard, Royce O'Neale and Matisse
+Thybulle.
 
 ## How the pieces work
 
@@ -128,9 +156,14 @@ floor as a default you can switch off, separate from anything the user asked for
 ### Style search
 
 Passages are embedded with `BAAI/bge-small-en-v1.5` and stored in a FAISS inner-product index, so
-scores are cosine similarities. A player's style score is the similarity of their best-matching
-passage. For "players similar to X" questions, the search uses the average of X's own passage
-vectors instead of the question text.
+scores are cosine similarities. For "players similar to X" questions, the search uses the average of
+X's own passage vectors instead of the question text.
+
+Encyclopedia prose and number-heavy profiles land in different similarity ranges: Wikipedia text
+scores higher for almost any basketball question. If the two were compared directly, players with a
+Wikipedia article would win the style score just for having one. So each type of text is scaled
+separately across the candidates, and a player's style score is the average over the types they
+have. On average, having a Wikipedia article neither helps nor hurts.
 
 ### Ranking
 
@@ -144,12 +177,30 @@ better. The statistical fit is the average of the preference scores. Style score
 to 1 across the pool, and the final score is 0.6 times the statistical fit plus 0.4 times the style
 score. Those weights are a starting point, not something I've tuned.
 
-Players without a description either get no style credit (the default) or the median style score.
-With coverage this low, that choice changes results a lot.
+Some goals care about which direction a stat points. A low share of assisted baskets means a player
+creates their own shot, while a high share on threes means a catch-and-shoot role, so each goal
+says which of its stats count in reverse. The UI shows the plain percentile and notes "lower is
+better here" when that applies.
 
-Two of the stats are stand-ins, and the UI labels them as such. Usage rate stands in for shot
-creation, because the dataset has no data on unassisted shots. Steal and block rates stand in for
-defense, which they only partly capture.
+The goals the shooting and play-by-play data made possible:
+
+- **Shot creation:** mostly the share of twos and threes that weren't assisted, with some usage rate
+  mixed in. Putbacks also count as unassisted, so without usage a rebounding big would look like a
+  shot creator.
+- **Rim pressure:** share of shots at the rim, shooting fouls drawn and and-ones.
+- **Rim finishing** (rim runners and lob threats): dunk share, finishing at the rim and how often
+  those baskets were assisted.
+- **Spot-up shooting:** assisted threes, three-point percentage, corner share and three-point rate.
+- **Post and mid-range scoring:** shot share and accuracy from those distances.
+
+A few of these are still stand-ins, and the UI labels them. There is no play-type data, so dunks
+and assisted rim finishes stand in for rolls and lobs, and shots from 3 to 10 feet include
+floaters as well as post-ups. Steals, blocks and charges drawn measure defensive activity, not
+overall defensive impact.
+
+Players with no style text at all either get no style credit (the default) or the median style
+score. Now that everyone has a stat-based profile, this only matters if you rebuild the index
+without them.
 
 Hard filters always run in SQL before any ranking happens, so a strong style match can never sneak
 in a player who fails a filter.
@@ -197,15 +248,23 @@ rather than proof that one method wins.
 On latency so far: SQL and ranking take a few milliseconds, and the vector search takes a few
 hundred. The first search after startup takes several seconds while the embedding model loads.
 
+One early observation, before any grading: the descriptions-only method is noisy now that most of
+the index is number-heavy profile text. The small embedding model doesn't read those numbers well,
+so it sometimes returns a center for a guard question. The hybrid method doesn't have this problem
+because the stats side keeps it honest, and that gap is exactly what the evaluation should measure.
+
 ## Tests
 
-`pytest` runs 60 tests against small synthetic fixtures: obviously fake players and a simple
+`pytest` runs 75 tests against small synthetic fixtures: obviously fake players and a simple
 hashing embedder, so the suite runs in under a second without downloading anything. They cover:
 
 - schema validation and the rule against invented thresholds
 - filter extraction and SQL filter enforcement, including how missing values are handled
 - hard filters always beating style matches
-- the percentile and direction math, and both missing-description policies
+- the percentile and direction math, including stats that count in reverse for one goal
+- scaling style scores separately for each type of text, and both missing-description policies
+- the stat-based profile template and its style tag rules
+- the importer's unit conversions
 - "similar to" searches and empty-result messages
 - the grounding check catching invented stats and fake citations
 - fallbacks when an LLM fails or returns bad output, and Gemini going first with Ollama as backup (all mocked)
@@ -215,10 +274,11 @@ hashing embedder, so the suite runs in under a second without downloading anythi
 ## Known limitations
 
 - Only one season is loaded, and the schema is built for more but nothing else is imported yet.
-- Style coverage is thin and skewed toward stars (see above), which biases the hybrid ranking toward
-  players who happen to have a Wikipedia profile.
+- Only 48 players have written (Wikipedia) style descriptions. Everyone else's style evidence is
+  their stat-based profile, which restates numbers rather than adding an independent view.
+- The style tag thresholds in the profiles are my judgment calls and haven't been validated.
 - Wikipedia profiles describe a player's whole career, so they can be out of date for 2025-26.
-- Shot creation and defense rely on stand-in stats.
+- There's no play-type tracking data, so rolls, lobs, post-ups and defense rely on stand-in stats.
 - The grounding check confirms that a number appears somewhere in a player's evidence. It doesn't
   confirm the number was attached to the right stat.
 - The rule-based parser works from keywords, so unusual phrasings can slip past it.
@@ -234,12 +294,13 @@ app.py                          Streamlit UI
 config.py                       settings, all overridable with environment variables
 scripts/import_stats.py         loads Basketball-Reference stats into SQLite
 scripts/import_descriptions.py  loads Wikipedia profile sections into SQLite
+scripts/build_stat_profiles.py  writes a stat-based style profile for every player
 scripts/build_index.py          embeds passages and builds the FAISS index
 scripts/evaluate.py             builds the grading pool and computes the metrics
 src/schemas.py                  search plan, metric list, ranking goals
 src/query_parser.py             LLM parser and rule-based fallback
 src/llm/                        Gemini, Ollama and Anthropic adapters, prompts
-src/stats/                      database schema and parameterized queries
+src/stats/                      database schema, parameterized queries, stat-based profile template
 src/retrieval/                  style index, ranking math, the three search methods
 src/generation/                 evidence packages, explanations, grounding check
 src/pipeline.py                 ties parsing, search and explanation together

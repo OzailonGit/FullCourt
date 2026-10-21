@@ -11,9 +11,12 @@ Normalization
   metric is NULL for a player the remaining metric weights are renormalized; if all are NULL the
   goal score is missing. Direction "low" uses 1 - s; "moderate" uses 1 - 2|s - 0.5|.
 * Statistical fit: unweighted mean of the available goal scores.
-* Semantic relevance: the player's best chunk cosine similarity, min-max scaled across candidates
-  that have any description. Players with no description get 0 ("zero" policy) or the median
-  scaled score of players who have one ("neutral" policy).
+* Semantic relevance: for each type of text (encyclopedia passages, stat-based profiles), the
+  player's best passage similarity is min-max scaled across the candidates that have that type.
+  The player's score is the mean over the types they have. Scaling per type matters because
+  prose and number-heavy profiles land in different similarity ranges, and averaging means having
+  an extra type of text neither helps nor hurts on average. Players with no text at all get 0
+  ("zero" policy) or the median scaled score ("neutral" policy).
 * Final score: stat_weight * stat_fit + semantic_weight * semantic. When one component is
   unavailable for the whole query (no statistical goals, or no descriptions), the other carries
   full weight and the breakdown says so.
@@ -166,12 +169,39 @@ def profile_similarity(candidates: list[dict], reference: dict) -> list[float | 
     return out
 
 
-def scale_semantic(similarities: list[float | None], missing_policy: Literal["zero", "neutral"]) -> list[float | None]:
-    present = [s for s in similarities if s is not None]
+# Best similarity per description type, or a single similarity when there is only one type of text.
+SemanticEvidence = dict[str, float] | float | None
+
+
+def _by_type(evidence: SemanticEvidence) -> dict[str, float] | None:
+    if evidence is None or isinstance(evidence, dict):
+        return evidence or None
+    return {"description": evidence}
+
+
+def best_similarity(evidence: SemanticEvidence) -> float | None:
+    by_type = _by_type(evidence)
+    return max(by_type.values()) if by_type else None
+
+
+def _min_max(values: list[float | None]) -> list[float | None]:
+    present = [v for v in values if v is not None]
     if not present:
-        return [None] * len(similarities)
+        return values
     low, high = min(present), max(present)
-    scaled = [None if s is None else (0.5 if high == low else (s - low) / (high - low)) for s in similarities]
+    return [None if v is None else (0.5 if high == low else (v - low) / (high - low)) for v in values]
+
+
+def scale_semantic(evidence: list[SemanticEvidence], missing_policy: Literal["zero", "neutral"]) -> list[float | None]:
+    by_type = [_by_type(e) for e in evidence]
+    types = sorted({t for d in by_type if d for t in d})
+    if not types:
+        return [None] * len(evidence)
+    scaled_by_type = {t: _min_max([d.get(t) if d else None for d in by_type]) for t in types}
+    scaled = [
+        None if d is None else sum(scaled_by_type[t][i] for t in d) / len(d)
+        for i, d in enumerate(by_type)
+    ]
     fill = 0.0 if missing_policy == "zero" else median([s for s in scaled if s is not None])
     return [fill if s is None else s for s in scaled]
 
@@ -179,14 +209,15 @@ def scale_semantic(similarities: list[float | None], missing_policy: Literal["ze
 def combine(
     player_ids: list[str],
     stat_fits: list[float | None],
-    semantic_similarities: list[float | None],
+    semantic_evidence: list[SemanticEvidence],
     goals: list[list[GoalBreakdown]] | None,
     stat_weight: float,
     semantic_weight: float,
     missing_policy: Literal["zero", "neutral"] = "zero",
 ) -> list[ScoreBreakdown]:
     """Combine statistical fit and semantic relevance into a ranked list of breakdowns (best first)."""
-    semantic_scaled = scale_semantic(semantic_similarities, missing_policy)
+    semantic_scaled = scale_semantic(semantic_evidence, missing_policy)
+    semantic_similarities = [best_similarity(e) for e in semantic_evidence]
     has_stats = any(s is not None for s in stat_fits)
     has_semantic = any(s is not None for s in semantic_similarities)
 

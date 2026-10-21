@@ -20,6 +20,7 @@ from src.llm.client import LLMClient, LLMError
 from src.llm.prompts import EXPLAIN_SYSTEM
 from src.retrieval.hybrid import PlayerResult, SearchResult, format_stat
 from src.schemas import GOALS, METRICS, Goal
+from src.stats.profiles import DESCRIPTION_TYPE as STAT_PROFILE_TYPE
 
 CORE_METRICS = ["games_played", "minutes_per_game", "points_per_game", "assists_per_game", "true_shooting_pct"]
 NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?")
@@ -110,6 +111,7 @@ def evidence_package(result: SearchResult, player: PlayerResult) -> dict:
                 "document_id": p.document_id,
                 "source": p.source_name,
                 "section": p.source_section,
+                "type": p.description_type,
                 "similarity": f"{p.similarity:.2f}",
                 "text": p.text,
             }
@@ -142,10 +144,16 @@ def template_explanation(result: SearchResult, player: PlayerResult) -> Explanat
         parts.append("Style descriptions are not used by the statistics-only method.")
     elif player.passages:
         top = player.passages[0]
-        parts.append(
-            f"Style evidence: the closest passage is from {top.source_name} ({top.source_section}), "
-            f"similarity {top.similarity:.2f}; read it below to judge the match."
-        )
+        if top.description_type == STAT_PROFILE_TYPE:
+            parts.append(
+                f"Style evidence: the closest match is this player's stat-based profile (written from the "
+                f"numbers, not scouting text), similarity {top.similarity:.2f}; read it below to judge the match."
+            )
+        else:
+            parts.append(
+                f"Style evidence: the closest passage is from {top.source_name} ({top.source_section}), "
+                f"similarity {top.similarity:.2f}; read it below to judge the match."
+            )
         cited.append(top.document_id)
     else:
         parts.append("Style evidence: no description of this player is available in the corpus.")

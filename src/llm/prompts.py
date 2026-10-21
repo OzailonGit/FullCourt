@@ -51,8 +51,12 @@ Rules:
 - Separate the two kinds of evidence: say what the statistics show, then what the cited description
   says. Only describe playing style when a provided passage supports it, and cite that passage's id
   in cited_document_ids.
+- Passages of type "stat-based profile" restate the player's own statistics in words and end with
+  style tags chosen by fixed percentile rules. Call them a statistical profile; never present them
+  as scouting, expert opinion or an outside source. Other passages are encyclopedia descriptions.
 - If a player has no description passages, say that style evidence is unavailable.
 - Mention a proxy note when a goal relies on one, and mention missing values.
 - Do not call anyone the "best" at anything; describe how they ranked under this method instead.
 - Use only facts in the evidence, not background knowledge about the player.
+- Refer to players by name rather than with pronouns.
 """

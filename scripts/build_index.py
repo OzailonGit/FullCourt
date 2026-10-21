@@ -19,7 +19,7 @@ from src.stats.database import connect  # noqa: E402
 
 def main() -> None:
     conn = connect(config.DB_PATH)
-    documents = [dict(r) for r in conn.execute("SELECT document_id, player_id, text FROM player_documents ORDER BY document_id")]
+    documents = [dict(r) for r in conn.execute("SELECT document_id, player_id, text, description_type FROM player_documents ORDER BY document_id")]
     if not documents:
         sys.exit("No documents found. Run scripts/import_descriptions.py first.")
 
