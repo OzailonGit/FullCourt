@@ -27,7 +27,7 @@ def main() -> None:
         )
     ]
     if not documents:
-        sys.exit("No documents found. Run scripts/import_descriptions.py first.")
+        sys.exit("No documents found. Run scripts/build_stat_profiles.py first.")
 
     started = time.perf_counter()
     embedder = SentenceTransformerEmbedder(config.EMBEDDING_MODEL, config.EMBEDDING_QUERY_PREFIX)
