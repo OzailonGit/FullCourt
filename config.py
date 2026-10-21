@@ -29,8 +29,9 @@ EMBEDDING_MODEL = os.getenv("FULLCOURT_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5
 EMBEDDING_QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
 # LLM provider: "ollama" (local, default), "anthropic", "gemini", or "none" (rule-based parser +
-# template explanations). When GEMINI_API_KEY is set, Gemini is tried first and this provider is
-# the backup. If nothing is reachable the app runs without an LLM and says so.
+# template explanations). When GEMINI_API_KEY is set, Gemini is tried first; when GROQ_API_KEY is
+# set, Groq is tried next; this provider is the last backup. If nothing is reachable the app runs
+# without an LLM and says so.
 LLM_PROVIDER = os.getenv("FULLCOURT_LLM_PROVIDER", "ollama")
 _DEFAULT_MODELS = {"ollama": "qwen2.5:7b", "anthropic": "claude-opus-5-5", "gemini": "", "none": ""}
 LLM_MODEL = os.getenv("FULLCOURT_LLM_MODEL", _DEFAULT_MODELS.get(LLM_PROVIDER, ""))
@@ -39,6 +40,10 @@ OLLAMA_NUM_CTX = int(os.getenv("FULLCOURT_OLLAMA_NUM_CTX", "8192"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or None
 # An alias Google keeps pointed at its current stable Flash model; pin a version for repeatable evals.
 GEMINI_MODEL = os.getenv("FULLCOURT_GEMINI_MODEL", "gemini-flash-latest")
+# Groq takes over when Gemini fails or runs out of quota. The model must support Groq's JSON-schema
+# response format.
+GROQ_API_KEY = os.getenv("GROQ_API_KEY") or None
+GROQ_MODEL = os.getenv("FULLCOURT_GROQ_MODEL", "openai/gpt-oss-120b")
 
 # Ranking defaults. These are starting points to be evaluated, not tuned optima.
 STAT_WEIGHT = float(os.getenv("FULLCOURT_STAT_WEIGHT", "0.6"))

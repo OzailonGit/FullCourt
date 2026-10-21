@@ -56,6 +56,8 @@ def load_llm() -> tuple[LLMClient | None, str]:
         config.OLLAMA_NUM_CTX,
         config.GEMINI_API_KEY,
         config.GEMINI_MODEL,
+        config.GROQ_API_KEY,
+        config.GROQ_MODEL,
     )
 
 

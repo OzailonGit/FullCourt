@@ -1,4 +1,4 @@
-"""LLM adapter tests with HTTP and SDK calls mocked; no Ollama server or Gemini API is contacted."""
+"""LLM adapter tests with HTTP and SDK calls mocked; no Ollama server, Gemini or Groq API is contacted."""
 
 import json
 import threading
@@ -9,7 +9,7 @@ import pytest
 import requests
 
 from src.llm import client as client_module
-from src.llm.client import FallbackClient, GeminiClient, LLMError, OllamaClient, get_client
+from src.llm.client import FallbackClient, GeminiClient, GroqClient, LLMError, OllamaClient, get_client
 from src.schemas import LLMSearchPlan
 
 
@@ -110,6 +110,64 @@ def test_gemini_bad_replies_raise_llm_error(text):
         gemini_with_reply(text).parse("system", "question", LLMSearchPlan)
 
 
+def groq_reply(content, finish_reason="stop"):
+    return FakeResponse(payload={"choices": [{"message": {"content": content}, "finish_reason": finish_reason}]})
+
+
+def test_groq_parse_sends_schema_and_validates_reply(monkeypatch):
+    sent = {}
+
+    def fake_post(url, json, headers, timeout):
+        sent.update(url=url, payload=json, headers=headers)
+        return groq_reply('{"semantic_query": "stretch big", "positions": ["PF"]}')
+
+    monkeypatch.setattr(client_module.requests, "post", fake_post)
+    plan = GroqClient("groq-test", api_key="test-key").parse("system", "question", LLMSearchPlan)
+    assert plan.positions[0].value == "PF"
+    assert sent["url"] == "https://api.groq.com/openai/v1/chat/completions"
+    assert sent["headers"] == {"Authorization": "Bearer test-key"}
+    response_format = sent["payload"]["response_format"]
+    assert response_format["type"] == "json_schema"
+    assert response_format["json_schema"]["schema"]["properties"]["semantic_query"]
+    assert sent["payload"]["temperature"] == 0
+
+
+@pytest.mark.parametrize("model, expected", [("openai/gpt-oss-120b", "low"), ("qwen/qwen3.8-27b", None)])
+def test_groq_sends_low_reasoning_effort_only_to_gpt_oss(monkeypatch, model, expected):
+    sent = {}
+
+    def fake_post(url, json, headers, timeout):
+        sent.update(json)
+        return groq_reply('{"semantic_query": "x"}')
+
+    monkeypatch.setattr(client_module.requests, "post", fake_post)
+    GroqClient(model, api_key="test-key").parse("system", "question", LLMSearchPlan, effort="medium")
+    assert sent.get("reasoning_effort") == expected
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        groq_reply('{"positions": ["XX"], "semantic_query": "x"}'),  # invalid enum
+        groq_reply("not json"),
+        groq_reply('{"semantic_query": "x"}', finish_reason="length"),
+        FakeResponse(payload={"choices": []}),
+        FakeResponse(status_code=500, text="server error"),
+    ],
+)
+def test_groq_bad_replies_raise_llm_error(monkeypatch, reply):
+    monkeypatch.setattr(client_module.requests, "post", lambda *a, **k: reply)
+    with pytest.raises(LLMError):
+        GroqClient("groq-test", api_key="test-key").parse("system", "question", LLMSearchPlan)
+
+
+def test_groq_rate_limit_reports_status_and_code_only(monkeypatch):
+    body = {"error": {"message": "Rate limit reached for org_123 on tokens per day", "code": "rate_limit_exceeded"}}
+    monkeypatch.setattr(client_module.requests, "post", lambda *a, **k: FakeResponse(status_code=429, payload=body))
+    with pytest.raises(LLMError, match=r"^Groq rejected the request \(429 rate_limit_exceeded\)$"):
+        GroqClient("groq-test", api_key="test-key").parse("system", "question", LLMSearchPlan)
+
+
 class StubLLM:
     def __init__(self, name, result=None):
         self.name = name
@@ -139,6 +197,14 @@ def test_gemini_key_puts_gemini_ahead_of_ollama(monkeypatch):
     assert isinstance(llm, FallbackClient)
     assert [c.name for c in llm.clients] == ["gemini:gemini-test", "ollama:qwen2.5:7b"]
     assert status == "LLM: gemini:gemini-test, falling back to ollama:qwen2.5:7b"
+
+
+def test_groq_sits_between_gemini_and_ollama(monkeypatch):
+    ollama_has(monkeypatch, "qwen2.5:7b")
+    llm, status = get_client(
+        "ollama", "qwen2.5:7b", gemini_api_key="g-key", gemini_model="gemini-test", groq_api_key="q-key", groq_model="groq-test"
+    )
+    assert [c.name for c in llm.clients] == ["gemini:gemini-test", "groq:groq-test", "ollama:qwen2.5:7b"]
 
 
 def test_gemini_alone_when_ollama_model_missing(monkeypatch):
