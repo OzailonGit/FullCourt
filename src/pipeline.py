@@ -49,7 +49,14 @@ def load_engine() -> ResearchEngine:
 
 def load_llm() -> tuple[LLMClient | None, str]:
     """Return (client or None, human-readable status for the UI)."""
-    return get_client(config.LLM_PROVIDER, config.LLM_MODEL, config.OLLAMA_HOST, config.OLLAMA_NUM_CTX)
+    return get_client(
+        config.LLM_PROVIDER,
+        config.LLM_MODEL,
+        config.OLLAMA_HOST,
+        config.OLLAMA_NUM_CTX,
+        config.GEMINI_API_KEY,
+        config.GEMINI_MODEL,
+    )
 
 
 def run(

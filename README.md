@@ -42,20 +42,31 @@ pytest
 I've tested this with Python 3.14 on an M2 Mac. The first run downloads the embedding model (about
 130 MB) from Hugging Face.
 
-### Using a local LLM
+### Choosing an LLM
 
-The LLM is optional and runs through [Ollama](https://ollama.com). Pull a model, copy `.env.example`
-to `.env`, and set `FULLCOURT_LLM_MODEL` to the model's name. The app asks Ollama for output that
-matches a JSON schema and requests an 8192-token context window, since Ollama's default is too small
-for the explanation prompt.
+The LLM is optional. Copy `.env.example` to `.env` and set up one or both of these:
 
-Choose a model that fits comfortably in memory alongside the app. On an 8 GB machine, a 7B or 8B
-model will swap heavily and take minutes per question; a 3B or 4B model is a better fit.
+- **Gemini.** Add your `GEMINI_API_KEY`. Whenever a key is present, Gemini is used first. The model
+  defaults to `gemini-flash-latest`, and you can change it with `FULLCOURT_GEMINI_MODEL`.
+- **Ollama.** Pull a model with [Ollama](https://ollama.com) and set `FULLCOURT_LLM_MODEL` to its
+  name. With a Gemini key also set, Ollama acts as the backup: if a Gemini call fails, for example
+  because you hit a quota, the same request goes to Ollama. The app requests an 8192-token context
+  window from Ollama, since its default is too small for the explanation prompt.
 
-If Ollama isn't running or the model isn't pulled, nothing breaks. The app switches to the
-rule-based parser and template explanations and tells you so in the sidebar. There's also an
-Anthropic adapter if you'd rather use an API (`FULLCOURT_LLM_PROVIDER=anthropic`, plus
+Both providers are asked for output that matches a JSON schema, and the result is validated before
+anything uses it.
+
+If you run Ollama, choose a model that fits comfortably in memory alongside the app. On an 8 GB
+machine, a 7B or 8B model will swap heavily and take minutes per question; a 3B or 4B model is a
+better fit.
+
+If nothing is available, nothing breaks. The app switches to the rule-based parser and template
+explanations and tells you so in the sidebar. Set `FULLCOURT_LLM_PROVIDER=none` to turn every LLM
+off, including Gemini. There's also an Anthropic adapter (`FULLCOURT_LLM_PROVIDER=anthropic`, plus
 `pip install anthropic` and an API key).
+
+With Gemini Flash, parsing a question takes about 5 seconds, and writing explanations for ten
+results takes 20 seconds or more. The very first call after startup is slower.
 
 ## Where the data comes from
 
@@ -186,7 +197,7 @@ hundred. The first search after startup takes several seconds while the embeddin
 
 ## Tests
 
-`pytest` runs 47 tests against small synthetic fixtures: obviously fake players and a simple
+`pytest` runs 56 tests against small synthetic fixtures: obviously fake players and a simple
 hashing embedder, so the suite runs in under a second without downloading anything. They cover:
 
 - schema validation and the rule against invented thresholds
@@ -195,7 +206,7 @@ hashing embedder, so the suite runs in under a second without downloading anythi
 - the percentile and direction math, and both missing-description policies
 - "similar to" searches and empty-result messages
 - the grounding check catching invented stats and fake citations
-- fallbacks when the LLM fails or returns bad output, using a mocked Ollama
+- fallbacks when an LLM fails or returns bad output, and Gemini going first with Ollama as backup (all mocked)
 - the evaluation metrics
 
 ## Known limitations
@@ -209,7 +220,7 @@ hashing embedder, so the suite runs in under a second without downloading anythi
   confirm the number was attached to the right stat.
 - The rule-based parser works from keywords, so unusual phrasings can slip past it.
 - Comparisons in filters are inclusive, so "over 20 points" is treated as 20 or more.
-- I've tested the LLM path with mocked responses but haven't benchmarked a specific local model
+- I've checked the Gemini path on real questions, but I haven't benchmarked a specific local model
   yet.
 - The ranking weights haven't been tuned.
 
@@ -224,7 +235,7 @@ scripts/build_index.py          embeds passages and builds the FAISS index
 scripts/evaluate.py             builds the grading pool and computes the metrics
 src/schemas.py                  search plan, metric list, ranking goals
 src/query_parser.py             LLM parser and rule-based fallback
-src/llm/                        Ollama and Anthropic adapters, prompts
+src/llm/                        Gemini, Ollama and Anthropic adapters, prompts
 src/stats/                      database schema and parameterized queries
 src/retrieval/                  style index, ranking math, the three search methods
 src/generation/                 evidence packages, explanations, grounding check

@@ -2,10 +2,12 @@
 
 The rest of the app only depends on the LLMClient protocol, so providers can be swapped.
 Providers:
+  * "gemini": Google Gemini. Used first whenever GEMINI_API_KEY is set, ahead of the configured
+    provider, which then serves as the backup.
   * "ollama" (default): a local model served by Ollama, with JSON-schema-constrained output.
   * "anthropic": the Anthropic API (optional; needs the `anthropic` package and credentials).
-  * "none": no LLM. Callers use the rule-based parser and template explanations instead
-    (see src/query_parser.py and src/generation/explanations.py).
+  * "none": no LLM, even if a Gemini key is set. Callers use the rule-based parser and template
+    explanations instead (see src/query_parser.py and src/generation/explanations.py).
 """
 
 from __future__ import annotations
@@ -77,6 +79,63 @@ class OllamaClient:
             raise LLMError("The model's output did not match the expected schema") from e
 
 
+class GeminiClient:
+    """Calls Gemini with the Pydantic model's JSON schema as the required response format."""
+
+    def __init__(self, model: str, api_key: str):
+        from google import genai
+        from google.genai import errors, types
+
+        self._errors = errors
+        self._types = types
+        self.client = genai.Client(api_key=api_key)
+        self.model = model
+        self.name = f"gemini:{model}"
+
+    def parse(self, system: str, user: str, schema: type[T], effort: str = "low") -> T:
+        # `effort` is an Anthropic concept; Gemini ignores it.
+        config = self._types.GenerateContentConfig(
+            system_instruction=system,
+            response_mime_type="application/json",
+            response_json_schema=schema.model_json_schema(),
+            temperature=0,
+        )
+        try:
+            response = self.client.models.generate_content(model=self.model, contents=user, config=config)
+        except self._errors.ClientError as e:
+            # Only the status goes into the message because it is shown in the UI; the body stays in the traceback.
+            raise LLMError(f"Gemini rejected the request ({e.code} {e.status})") from e
+        except self._errors.ServerError as e:
+            raise LLMError(f"Gemini server error ({e.code})") from e
+        except Exception as e:  # network failures surface as httpx exceptions
+            raise LLMError("Could not reach Gemini") from e
+
+        if not response.text:
+            reason = response.candidates[0].finish_reason if response.candidates else "no candidates"
+            raise LLMError(f"Gemini returned no content ({reason})")
+        try:
+            return schema.model_validate_json(response.text)
+        except ValidationError as e:
+            raise LLMError("Gemini's output did not match the expected schema") from e
+
+
+class FallbackClient:
+    """Tries each client in order and returns the first valid response."""
+
+    def __init__(self, clients: list[LLMClient]):
+        self.clients = clients
+        self.name = ", falling back to ".join(c.name for c in clients)
+
+    def parse(self, system: str, user: str, schema: type[T], effort: str = "low") -> T:
+        failures = []
+        for llm in self.clients:
+            try:
+                return llm.parse(system, user, schema, effort)
+            except LLMError as e:
+                failures.append(f"{llm.name}: {e}")
+        raise LLMError("; ".join(failures))
+
+
 class AnthropicClient:
     def __init__(self, model: str):
         import anthropic
@@ -116,22 +175,47 @@ class AnthropicClient:
 
 
 def get_client(
-    provider: str, model: str, ollama_host: str = "http://localhost:11434", ollama_num_ctx: int = 8192
+    provider: str,
+    model: str,
+    ollama_host: str = "http://localhost:11434",
+    ollama_num_ctx: int = 8192,
+    gemini_api_key: str | None = None,
+    gemini_model: str = "gemini-flash-latest",
 ) -> tuple[LLMClient | None, str]:
-    """Return (client, status). The client is None when the app should run without an LLM."""
+    """Return (client, status). The client is None when the app should run without an LLM.
+
+    With a Gemini key, Gemini comes first and the configured provider becomes its backup.
+    """
     if provider == "none":
         return None, "LLM disabled (FULLCOURT_LLM_PROVIDER=none)"
+    if provider not in ("ollama", "anthropic", "gemini"):
+        raise ValueError(f"unknown LLM provider {provider!r}")
+
+    clients: list[LLMClient] = []
+    problems: list[str] = []
+    if gemini_api_key:
+        try:
+            clients.append(GeminiClient(gemini_model, gemini_api_key))
+        except Exception as e:  # missing google-genai package
+            problems.append(f"Gemini client could not start ({type(e).__name__})")
+    elif provider == "gemini":
+        problems.append("FULLCOURT_LLM_PROVIDER=gemini but GEMINI_API_KEY is not set")
+
     if provider == "ollama":
-        client = OllamaClient(model, ollama_host, ollama_num_ctx)
+        ollama = OllamaClient(model, ollama_host, ollama_num_ctx)
         try:
-            client.check()
+            ollama.check()
+            clients.append(ollama)
         except LLMError as e:
-            return None, f"LLM unavailable: {e}"
-        return client, f"LLM: {client.name}"
-    if provider == "anthropic":
+            problems.append(str(e))
+    elif provider == "anthropic":
         try:
-            client = AnthropicClient(model)
+            clients.append(AnthropicClient(model))
         except Exception as e:  # missing package or credentials
-            return None, f"LLM unavailable: Anthropic client could not start ({e})"
-        return client, f"LLM: {client.name}"
-    raise ValueError(f"unknown LLM provider {provider!r}")
+            problems.append(f"Anthropic client could not start ({e})")
+
+    notes = f" ({'; '.join(problems)})" if problems else ""
+    if not clients:
+        return None, f"LLM unavailable{notes}"
+    client = clients[0] if len(clients) == 1 else FallbackClient(clients)
+    return client, f"LLM: {client.name}{notes}"

@@ -1,12 +1,13 @@
-"""OllamaClient tests with the HTTP layer mocked; no Ollama server is contacted."""
+"""LLM adapter tests with HTTP and SDK calls mocked; no Ollama server or Gemini API is contacted."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 import requests
 
 from src.llm import client as client_module
-from src.llm.client import LLMError, OllamaClient, get_client
+from src.llm.client import FallbackClient, GeminiClient, LLMError, OllamaClient, get_client
 from src.schemas import LLMSearchPlan
 
 
@@ -73,3 +74,83 @@ def test_get_client_reports_missing_model_and_unreachable_server(monkeypatch):
     monkeypatch.setattr(client_module.requests, "get", lambda *a, **k: FakeResponse(payload={"models": [{"name": "wanted-model:latest"}]}))
     llm, status = get_client("ollama", "wanted-model")
     assert llm is not None and json.dumps(status)
+
+
+class FakeGeminiModels:
+    def __init__(self, text):
+        self.text = text
+        self.calls = []
+
+    def generate_content(self, model, contents, config):
+        self.calls.append(config)
+        return SimpleNamespace(text=self.text, candidates=[])
+
+
+def gemini_with_reply(text):
+    gemini = GeminiClient("gemini-test", api_key="test-key")
+    gemini.client = SimpleNamespace(models=FakeGeminiModels(text))
+    return gemini
+
+
+def test_gemini_parse_sends_schema_and_validates_reply():
+    gemini = gemini_with_reply('{"semantic_query": "rim protector", "positions": ["C"]}')
+    plan = gemini.parse("system", "question", LLMSearchPlan)
+    assert plan.positions[0].value == "C"
+    config = gemini.client.models.calls[0]
+    assert config.response_mime_type == "application/json"
+    assert config.response_json_schema["properties"]["semantic_query"]
+    assert config.temperature == 0
+
+
+@pytest.mark.parametrize("text", ['{"positions": ["XX"], "semantic_query": "x"}', "", "not json"])
+def test_gemini_bad_replies_raise_llm_error(text):
+    with pytest.raises(LLMError):
+        gemini_with_reply(text).parse("system", "question", LLMSearchPlan)
+
+
+class StubLLM:
+    def __init__(self, name, result=None):
+        self.name = name
+        self.result = result
+
+    def parse(self, system, user, schema, effort="low"):
+        if self.result is None:
+            raise LLMError(f"{self.name} failed")
+        return self.result
+
+
+def test_fallback_client_uses_the_first_working_client():
+    plan = LLMSearchPlan(semantic_query="x")
+    assert FallbackClient([StubLLM("a"), StubLLM("b", plan)]).parse("s", "u", LLMSearchPlan) is plan
+    with pytest.raises(LLMError, match="a: a failed; b: b failed"):
+        FallbackClient([StubLLM("a"), StubLLM("b")]).parse("s", "u", LLMSearchPlan)
+
+
+def ollama_has(monkeypatch, *models):
+    payload = {"models": [{"name": m} for m in models]}
+    monkeypatch.setattr(client_module.requests, "get", lambda *a, **k: FakeResponse(payload=payload))
+
+
+def test_gemini_key_puts_gemini_ahead_of_ollama(monkeypatch):
+    ollama_has(monkeypatch, "qwen2.5:7b")
+    llm, status = get_client("ollama", "qwen2.5:7b", gemini_api_key="test-key", gemini_model="gemini-test")
+    assert isinstance(llm, FallbackClient)
+    assert [c.name for c in llm.clients] == ["gemini:gemini-test", "ollama:qwen2.5:7b"]
+    assert status == "LLM: gemini:gemini-test, falling back to ollama:qwen2.5:7b"
+
+
+def test_gemini_alone_when_ollama_model_missing(monkeypatch):
+    ollama_has(monkeypatch, "other:latest")
+    llm, status = get_client("ollama", "qwen2.5:7b", gemini_api_key="test-key", gemini_model="gemini-test")
+    assert isinstance(llm, GeminiClient)
+    assert "ollama pull qwen2.5:7b" in status
+
+
+def test_provider_none_disables_gemini_too():
+    llm, status = get_client("none", "", gemini_api_key="test-key")
+    assert llm is None and "disabled" in status
+
+
+def test_gemini_provider_without_key_is_reported():
+    llm, status = get_client("gemini", "", gemini_api_key=None)
+    assert llm is None and "GEMINI_API_KEY is not set" in status
