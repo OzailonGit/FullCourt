@@ -88,11 +88,13 @@ results takes 20 seconds or more. The very first call after startup is slower.
 When a player was traded, I keep their combined season row and record each team they played for.
 
 **Style profiles** are short write-ups built for every player from their own numbers by a fixed
-template. A profile reads like "83% of shots at the rim, 33% dunks; 77% of made twos assisted" and
-ends with style tags such as "rim-running finisher and lob threat". The tags come from simple
-percentile rules (in `src/stats/profiles.py`) applied against rotation players, and players with
-too small a sample get no tags. Profiles leave out the player's name, so a "similar to Nikola
-Jokić" search matches playing style rather than other players named Nikola.
+template. A profile reads like "83% of shots at the rim, 33% dunks; 77% of made twos assisted",
+then says how the player compares with rotation players ("very high: dunk rate, assisted twos;
+very low: usage, three-point volume") and ends with style tags such as "rim-running finisher and
+lob threat". The comparisons and tags come from simple percentile rules (in
+`src/stats/profiles.py`), and players with too small a sample get neither. Profiles leave out the
+player's name, so a "similar to Nikola Jokić" search matches playing style rather than other
+players named Nikola.
 
 No style text is written by an LLM. The profiles restate numbers, not scouting, and the UI and
 explanations label them that way.
@@ -148,9 +150,22 @@ floor as a default you can switch off, separate from anything the user asked for
 
 ### Style search
 
-Passages are embedded with `BAAI/bge-small-en-v1.5` and stored in a FAISS inner-product index, so
-scores are cosine similarities. For "players similar to X" questions, the search uses the average of
-X's own passage vectors instead of the question text.
+What gets embedded is not the full profile but a short summary of it with no numbers: the player's
+role ("center, big man"), the comparisons with rotation players, and the style tags. My first
+version embedded the full profile, and every player came out looking almost the same. The
+embedding model barely reads numbers, so the shared template wording dominated: two different
+players' profiles scored 0.98 to 0.997 against each other, and a question's scores across all 582
+players varied by only about 0.04. Style search was ranking on noise. The number-free summaries
+spread that out about four times wider, and "rim-running bigs" went from returning stretch forwards
+to returning centers like Kel'el Ware, Branden Carlson and Drew Eubanks.
+
+The summaries are embedded with `BAAI/bge-small-en-v1.5` and stored in a FAISS inner-product
+index, so scores are cosine similarities. For "players similar to X" questions, the search uses X's
+own summary vector instead of the question text.
+
+The UI doesn't show raw cosine similarity, because it isn't meaningful on its own: similar players
+score around 0.99 against each other, and questions land between about 0.6 and 0.75. Instead each
+profile shows its style match, the same 0 to 1 score the ranking uses.
 
 Style scores are scaled from 0 to 1 across the candidates. The code scales each type of text
 separately and averages them, which only matters if another source of text is ever added: prose
@@ -240,15 +255,14 @@ rather than proof that one method wins.
 On latency so far: SQL and ranking take a few milliseconds, and the vector search takes a few
 hundred. The first search after startup takes several seconds while the embedding model loads.
 
-One early observation, before any grading: the profiles-only method is noisy. The small embedding
-model doesn't read numbers well, so it sometimes returns a center for a guard question. The hybrid
-method doesn't have this problem because the stats side keeps it honest. Since the profiles are
-built from the same stats, the more interesting question for the evaluation is whether the hybrid
-method beats stats only at all.
+One thing to keep in mind when reading the results: the profiles are built from the same stats the
+ranking uses, so the interesting question is whether the hybrid method beats stats only at all.
+What the style search can add is matching by meaning, for example finding "lob threats" through
+words like "dunk rate" and "assisted twos" without anyone mapping those words to columns by hand.
 
 ## Tests
 
-`pytest` runs 75 tests against small synthetic fixtures: obviously fake players and a simple
+`pytest` runs 78 tests against small synthetic fixtures: obviously fake players and a simple
 hashing embedder, so the suite runs in under a second without downloading anything. They cover:
 
 - schema validation and the rule against invented thresholds
@@ -256,7 +270,7 @@ hashing embedder, so the suite runs in under a second without downloading anythi
 - hard filters always beating style matches
 - the percentile and direction math, including stats that count in reverse for one goal
 - scaling style scores separately for each type of text, and both missing-description policies
-- the stat-based profile template and its style tag rules
+- the stat-based profile template, its style tag rules, and the number-free summary that gets embedded
 - the importer's unit conversions
 - "similar to" searches and empty-result messages
 - the grounding check catching invented stats and fake citations

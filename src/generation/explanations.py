@@ -112,7 +112,6 @@ def evidence_package(result: SearchResult, player: PlayerResult) -> dict:
                 "source": p.source_name,
                 "section": p.source_section,
                 "type": p.description_type,
-                "similarity": f"{p.similarity:.2f}",
                 "text": p.text,
             }
             for p in player.passages
@@ -146,13 +145,15 @@ def template_explanation(result: SearchResult, player: PlayerResult) -> Explanat
         top = player.passages[0]
         if top.description_type == STAT_PROFILE_TYPE:
             parts.append(
-                f"Style evidence: the closest match is this player's stat-based profile (written from the "
-                f"numbers, not scouting text), similarity {top.similarity:.2f}; read it below to judge the match."
+                f"Style evidence: this player's stat-based profile (written from the numbers, not scouting "
+                f"text) has a style match of {b.semantic_score:.2f} on a scale from zero to one across the candidates; "
+                f"read it below to judge the match."
             )
         else:
             parts.append(
-                f"Style evidence: the closest passage is from {top.source_name} ({top.source_section}), "
-                f"similarity {top.similarity:.2f}; read it below to judge the match."
+                f"Style evidence: the closest passage is from {top.source_name} ({top.source_section}), with a "
+                f"style match of {b.semantic_score:.2f} on a scale from zero to one across the candidates; read it below to "
+                f"judge the match."
             )
         cited.append(top.document_id)
     else:

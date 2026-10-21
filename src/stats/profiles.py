@@ -1,12 +1,19 @@
 """Write a plain-language style profile for every player from their own statistics.
 
-These profiles are the text that semantic search runs over, and every player gets one.
-They are not scouting text: every sentence restates a number from the database, and the style tags
-at the end come from fixed percentile rules (STYLE_TAG_RULES) applied against rotation players
-(the default eligibility pool). Tags are only added for players in that pool, because rate stats
-from a handful of games would produce misleading labels.
+Every player gets two texts:
+  * the profile (build_profile_text), shown in the UI and given to the LLM, which restates the
+    numbers and ends with how the player compares with rotation players and their style tags;
+  * the search summary (build_search_text), which is what gets embedded. It keeps only the role,
+    the comparisons and the tags, with no numbers.
 
-The text avoids pronouns so it never guesses anyone's gender.
+The split exists because the embedding model barely reads numbers. When the full profile was
+embedded, the shared template wording dominated and every profile looked almost identical (cosine
+0.98 to 0.997 between players), so style search ranked on noise.
+
+None of this is scouting text. The comparisons and tags come from fixed percentile rules applied
+against rotation players (the default eligibility pool), and are only added for players in that
+pool, because rate stats from a handful of games would produce misleading labels. The text avoids
+pronouns so it never guesses anyone's gender.
 """
 
 from __future__ import annotations
@@ -24,6 +31,37 @@ POSITION_LABELS = {
     "minutes_share_pf": "power forward",
     "minutes_share_c": "center",
 }
+# Everyday role words, so questions about "guards", "wings" or "bigs" match the search summary.
+ROLE_WORDS = {
+    "minutes_share_pg": ["point guard", "guard"],
+    "minutes_share_sg": ["shooting guard", "guard", "wing"],
+    "minutes_share_sf": ["small forward", "wing", "forward"],
+    "minutes_share_pf": ["power forward", "forward", "big"],
+    "minutes_share_c": ["center", "big man"],
+}
+MAIN_POSITION_SHARE = 0.2
+
+# Traits compared against rotation players, as (column, wording).
+TRAITS = [
+    ("usage_rate", "usage"),
+    ("points_per_game", "scoring volume"),
+    ("true_shooting_pct", "scoring efficiency"),
+    ("shot_share_0_3ft", "share of shots at the rim"),
+    ("dunk_share", "dunk rate"),
+    ("shot_share_3_10ft", "short-range shots (floaters, hooks, post-ups)"),
+    ("midrange_share", "mid-range shots"),
+    ("three_point_attempt_rate", "three-point volume"),
+    ("corner_three_share", "corner threes"),
+    ("assisted_share_2pt", "assisted twos"),
+    ("assisted_share_3pt", "assisted threes"),
+    ("shooting_fouls_drawn_per_game", "fouls drawn"),
+    ("assist_rate", "playmaking"),
+    ("rebound_rate", "rebounding"),
+    ("block_rate", "shot blocking"),
+    ("steal_rate", "steals"),
+]
+# Percentile cut-offs for the comparison wording; traits in between are average and left out.
+TRAIT_BUCKETS = [("very high", 0.9, 1.0), ("high", 0.7, 0.9), ("low", 0.1, 0.3), ("very low", 0.0, 0.1)]
 
 
 class PoolPercentiles:
@@ -121,6 +159,7 @@ TAG_COLUMNS = [
     "corner_three_share", "midrange_share", "shot_share_3_10ft", "block_rate", "steal_rate",
     "charges_drawn_per_game", "rebound_rate", "three_point_pct",
 ]
+PERCENTILE_COLUMNS = sorted(set(TAG_COLUMNS) | {column for column, _ in TRAITS})
 
 
 def with_derived_columns(row: dict) -> dict:
@@ -134,6 +173,45 @@ def style_tags(row: dict, percentiles: PoolPercentiles) -> list[str]:
         return percentiles(column, row.get(column))
 
     return [rule.tag for rule in STYLE_TAG_RULES if rule.applies(p, row)]
+
+
+def trait_comparison(row: dict, percentiles: PoolPercentiles) -> dict[str, list[str]]:
+    """Group the player's non-average traits by how they compare with rotation players."""
+    row = with_derived_columns(row)
+    buckets: dict[str, list[str]] = {name: [] for name, _, _ in TRAIT_BUCKETS}
+    for column, wording in TRAITS:
+        p = percentiles(column, row.get(column))
+        if p is None:
+            continue
+        for name, low, high in TRAIT_BUCKETS:
+            if low <= p < high or (high == 1.0 and p == 1.0):
+                buckets[name].append(wording)
+                break
+    return {name: traits for name, traits in buckets.items() if traits}
+
+
+def _comparison_sentence(row: dict, percentiles: PoolPercentiles) -> str:
+    comparison = trait_comparison(row, percentiles)
+    if not comparison:
+        return "Compared with rotation players: no trait stands out."
+    return "Compared with rotation players: " + "; ".join(f"{name}: {', '.join(t)}" for name, t in comparison.items()) + "."
+
+
+def _tags_sentence(row: dict, percentiles: PoolPercentiles) -> str:
+    tags = style_tags(with_derived_columns(row), percentiles)
+    return f"Style tags from percentile rules: {'; '.join(tags)}." if tags else "Style tags from percentile rules: none stand out."
+
+
+def build_search_text(row: dict, percentiles: PoolPercentiles, eligible: bool) -> str:
+    """Return the number-free summary that gets embedded (see the module docstring for why)."""
+    words: list[str] = []
+    for column, labels in ROLE_WORDS.items():
+        if (row.get(column) or 0.0) >= MAIN_POSITION_SHARE:
+            words += [w for w in labels if w not in words]
+    role = f"Role: {', '.join(words)}." if words else "Role: position not recorded."
+    if not eligible:
+        return f"{role} Small sample: no comparison with rotation players."
+    return " ".join([role, _comparison_sentence(row, percentiles), _tags_sentence(row, percentiles)])
 
 
 def _pct(value: float | None) -> str | None:
@@ -159,7 +237,9 @@ def build_profile_text(row: dict, percentiles: PoolPercentiles, eligible: bool) 
     positions = sorted(
         ((row.get(column) or 0.0, label) for column, label in POSITION_LABELS.items()), reverse=True
     )
-    main_positions = [f"{label} ({share * 100:.0f}% of minutes)" for share, label in positions if share >= 0.2]
+    main_positions = [
+        f"{label} ({share * 100:.0f}% of minutes)" for share, label in positions if share >= MAIN_POSITION_SHARE
+    ]
 
     sentences = [
         # The player's name is left out on purpose: in the embedding it would make "similar to
@@ -215,11 +295,7 @@ def build_profile_text(row: dict, percentiles: PoolPercentiles, eligible: bool) 
     ]
 
     if eligible:
-        tags = style_tags(row, percentiles)
-        sentences.append(
-            f"Style tags from percentile rules: {'; '.join(tags)}." if tags
-            else "Style tags from percentile rules: none stand out."
-        )
+        sentences += [_comparison_sentence(row, percentiles), _tags_sentence(row, percentiles)]
     else:
-        sentences.append("Small sample: no style tags.")
+        sentences.append("Small sample: no comparison with rotation players and no style tags.")
     return " ".join(s for s in sentences if s)

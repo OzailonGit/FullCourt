@@ -181,18 +181,21 @@ for player in result.results:
                 st.caption("The statistics-only method does not use style descriptions.")
             elif not player.passages:
                 st.caption("No description of this player is available in the corpus.")
+            # Raw cosine similarity is not shown: profiles share a template, so raw values sit in a narrow
+            # band (0.6-0.75 for questions, about 0.99 between similar players) and read as meaningless.
+            style_match = f"style match {b.semantic_score:.2f} (0 to 1 across these candidates)"
             for passage in player.passages:
                 st.markdown(f"> {passage.text}")
                 if passage.description_type == STAT_PROFILE_TYPE:
                     st.caption(
                         f"Stat-based profile written from {stats['season']} Basketball-Reference numbers by a fixed "
-                        f"template, not scouting text · similarity {passage.similarity:.2f} · `{passage.document_id}`"
+                        f"template, not scouting text · {style_match} · `{passage.document_id}`"
                     )
                     continue
                 revised = f", revision of {passage.published_at[:10]}" if passage.published_at else ""
                 st.caption(
                     f"[{passage.source_name}: {passage.source_section}]({passage.source_url}){revised} · "
-                    f"{passage.description_type} · {passage.license} · similarity {passage.similarity:.2f} · `{passage.document_id}`"
+                    f"{passage.description_type} · {passage.license} · {style_match} · `{passage.document_id}`"
                 )
 
 st.caption("Statistics: Basketball-Reference. Style profiles: written from the same season's statistics by a "

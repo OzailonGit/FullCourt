@@ -17,7 +17,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import config  # noqa: E402
 from src.stats.database import connect, init_schema  # noqa: E402
-from src.stats.profiles import DESCRIPTION_TYPE, TAG_COLUMNS, PoolPercentiles, build_profile_text, with_derived_columns  # noqa: E402
+from src.stats.profiles import (  # noqa: E402
+    DESCRIPTION_TYPE,
+    PERCENTILE_COLUMNS,
+    PoolPercentiles,
+    build_profile_text,
+    build_search_text,
+    with_derived_columns,
+)
 
 SOURCE_NAME = "Basketball-Reference stat profile"
 
@@ -43,7 +50,7 @@ def main() -> None:
         return (row["games_played"] or 0) >= config.DEFAULT_MIN_GAMES and (row["minutes_per_game"] or 0) >= config.DEFAULT_MIN_MINUTES
 
     pool = [with_derived_columns(r) for r in rows if is_eligible(r)]
-    percentiles = PoolPercentiles(pool, TAG_COLUMNS)
+    percentiles = PoolPercentiles(pool, PERCENTILE_COLUMNS)
     retrieved_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     documents = []
@@ -61,13 +68,19 @@ def main() -> None:
             DESCRIPTION_TYPE,
             "Derived from Basketball-Reference data",
             retrieved_at,
+            build_search_text(row, percentiles, is_eligible(row)),
         ))
 
     with conn:
         conn.execute(
             "DELETE FROM player_documents WHERE description_type = ? AND season = ?", (DESCRIPTION_TYPE, args.season)
         )
-        conn.executemany("INSERT INTO player_documents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", documents)
+        conn.executemany(
+            "INSERT INTO player_documents (document_id, player_id, text, source_name, source_url, source_section, "
+            "revision_id, published_at, season, description_type, license, retrieved_at, embedding_text) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            documents,
+        )
     print(f"Wrote {len(documents)} stat-based profiles for {args.season} ({len(pool)} with style tags).")
 
 

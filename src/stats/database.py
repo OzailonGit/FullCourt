@@ -91,7 +91,8 @@ CREATE TABLE IF NOT EXISTS player_documents (
     season           TEXT,            -- NULL when the text is not tied to a single season
     description_type TEXT NOT NULL,
     license          TEXT,
-    retrieved_at     TEXT NOT NULL
+    retrieved_at     TEXT NOT NULL,
+    embedding_text   TEXT             -- what gets embedded, when it differs from `text`; NULL means use `text`
 );
 CREATE INDEX IF NOT EXISTS idx_documents_player ON player_documents(player_id);
 """

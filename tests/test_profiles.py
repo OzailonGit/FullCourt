@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from src.stats.profiles import PoolPercentiles, build_profile_text, style_tags
+from src.stats.profiles import PoolPercentiles, build_profile_text, build_search_text, style_tags
 
 POOL = [
     {"dunk_share": 0.01 * i, "assisted_share_2pt": 0.01 * i, "usage_rate": 0.30 - 0.002 * i, "three_point_attempt_rate": 0.5 - 0.005 * i}
@@ -52,7 +52,7 @@ def test_profile_restates_numbers_and_skips_missing_values():
 
 def test_small_samples_get_no_tags():
     text = build_profile_text(RIM_RUNNER, PoolPercentiles(POOL, COLUMNS), eligible=False)
-    assert "Small sample: no style tags." in text
+    assert "Small sample: no comparison with rotation players and no style tags." in text
     assert "lob threat" not in text
 
 
@@ -64,3 +64,23 @@ def test_profile_text_uses_no_pronouns():
 def test_profile_text_leaves_out_the_player_name():
     text = build_profile_text(RIM_RUNNER, PoolPercentiles(POOL, COLUMNS), eligible=True)
     assert "Fixture" not in text
+
+
+def test_search_text_has_no_numbers_but_keeps_role_and_comparisons():
+    text = build_search_text(RIM_RUNNER, PoolPercentiles(POOL, COLUMNS), eligible=True)
+    assert not re.search(r"\d", text)
+    assert text.startswith("Role: center, big man.")
+    assert "very high: dunk rate, assisted twos" in text
+    assert "very low: usage, three-point volume" in text
+    assert "lob threat" in text
+
+
+def test_profile_includes_the_same_comparison_as_the_search_text():
+    percentiles = PoolPercentiles(POOL, COLUMNS)
+    profile = build_profile_text(RIM_RUNNER, percentiles, eligible=True)
+    assert "Compared with rotation players: very high: dunk rate, assisted twos" in profile
+
+
+def test_small_sample_search_text_has_role_only():
+    text = build_search_text(RIM_RUNNER, PoolPercentiles(POOL, COLUMNS), eligible=False)
+    assert text == "Role: center, big man. Small sample: no comparison with rotation players."
