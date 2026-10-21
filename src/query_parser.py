@@ -93,8 +93,11 @@ UNSUPPORTED_RULES: list[tuple[str, str]] = [
     (r"draft|prospect|college", "draft or college information"),
 ]
 
+# The lead-in is case-insensitive but the name must be capitalized, so "similar style to this
+# guard" is not mistaken for a player. "similar" allows a few words before "to" to cover phrasings
+# like "similar play style to" or "similar style of play to".
 REFERENCE_PATTERN = re.compile(
-    r"(?:similar (?:style |game |profile |playing style )?to|plays? like|like|comparable to|style of|in the mold of|resemble|reminiscent of)\s+"
+    r"(?i:similar\s+(?:[a-z\-]+\s+){0,3}?to|plays? like|like|comparable to|style of|in the mold of|resemble|reminiscent of)\s+"
     r"(?P<name>[A-Z][\w'.\-]+(?:\s+(?:[A-Z][\w'.\-]+|Jr\.?|Sr\.?|II|III|IV))+)"
 )
 SEASON_PATTERN = re.compile(r"\b(20\d{2})\s*[-–/]\s*(\d{2})\b")

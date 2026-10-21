@@ -80,6 +80,21 @@ def test_reference_player_and_unsupported_requests():
     assert any("clutch" in u for u in plan.unsupported_requests)
 
 
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Find players who have a similar play style to Stephen Curry",
+        "Find players with a similar style of play to Stephen Curry",
+        "Similar to Stephen Curry but taller",
+        "Who has a similar skill set to Stephen Curry?",
+    ],
+)
+def test_reference_player_phrasings(question):
+    result = parse_rules(question, SEASON)
+    assert result.plan.reference_player == "Stephen Curry"
+    assert result.warnings == []
+
+
 def test_similar_without_name_warns():
     result = parse_rules("Find players with a similar style to this guard", SEASON)
     assert result.plan.reference_player is None
