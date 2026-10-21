@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+# Scraped source data and derived artifacts are rebuilt by the scripts, not committed.
+data/raw/
+data/processed/*.sqlite
+data/processed/*.faiss
+data/processed/*.meta.json
+.DS_Store
+
+# Markdown files are kept local and not committed.
+*.md

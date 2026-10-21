@@ -1,0 +1,15 @@
+[
+  {"id": "q01", "intent": "efficiency + playmaking", "question": "Find efficient guards who create for teammates."},
+  {"id": "q02", "intent": "efficiency + playmaking", "question": "Which players are efficient scorers who also create opportunities for teammates?"},
+  {"id": "q03", "intent": "scoring, average playmaking", "question": "Find high scorers who are average playmakers."},
+  {"id": "q04", "intent": "playmaking without scoring", "question": "Find playmakers who create advantages without scoring a lot."},
+  {"id": "q05", "intent": "similar player", "question": "Find players with a similar style to Jalen Brunson."},
+  {"id": "q06", "intent": "similar player", "question": "Find players with a similar style to Nikola Jokić."},
+  {"id": "q07", "intent": "explicit numeric filters", "question": "Guards with at least 20 points and 5 assists per game."},
+  {"id": "q08", "intent": "explicit numeric filters + style", "question": "Bigs who shoot at least 35% from three and can pass."},
+  {"id": "q09", "intent": "style-heavy", "question": "Rim-protecting centers who block shots and rebound."},
+  {"id": "q10", "intent": "style-heavy", "question": "Three-and-D wings who space the floor and defend."},
+  {"id": "q11", "intent": "style-heavy", "question": "Isolation scorers who create their own shot off the dribble."},
+  {"id": "q12", "intent": "limited evidence", "question": "Who are the best lob threats as a pick-and-roll roll man?"},
+  {"id": "q13", "intent": "unsupported", "question": "Who is the most clutch shooter in late-game situations?"}
+]
