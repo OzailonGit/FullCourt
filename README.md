@@ -47,7 +47,9 @@ I've tested this with Python 3.14 on an M2 Mac. The first run downloads the embe
 The LLM is optional. Copy `.env.example` to `.env` and set up one or both of these:
 
 - **Gemini.** Add your `GEMINI_API_KEY`. Whenever a key is present, Gemini is used first. The model
-  defaults to `gemini-flash-latest`, and you can change it with `FULLCOURT_GEMINI_MODEL`.
+  defaults to `gemini-flash-latest`, and you can change it with `FULLCOURT_GEMINI_MODEL`. If Gemini
+  answers "overloaded" (503) or "rate limited" (429), the app waits and retries up to three times
+  (after about 1, 2 and 4 seconds) before moving on to the backup.
 - **Ollama.** Pull a model with [Ollama](https://ollama.com) and set `FULLCOURT_LLM_MODEL` to its
   name. With a Gemini key also set, Ollama acts as the backup: if a Gemini call fails, for example
   because you hit a quota, the same request goes to Ollama. The app requests an 8192-token context
@@ -197,7 +199,7 @@ hundred. The first search after startup takes several seconds while the embeddin
 
 ## Tests
 
-`pytest` runs 56 tests against small synthetic fixtures: obviously fake players and a simple
+`pytest` runs 60 tests against small synthetic fixtures: obviously fake players and a simple
 hashing embedder, so the suite runs in under a second without downloading anything. They cover:
 
 - schema validation and the rule against invented thresholds
@@ -207,6 +209,7 @@ hashing embedder, so the suite runs in under a second without downloading anythi
 - "similar to" searches and empty-result messages
 - the grounding check catching invented stats and fake citations
 - fallbacks when an LLM fails or returns bad output, and Gemini going first with Ollama as backup (all mocked)
+- Gemini retrying overloaded and rate-limited requests, checked against a fake Gemini server on localhost
 - the evaluation metrics
 
 ## Known limitations

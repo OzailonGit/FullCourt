@@ -1,6 +1,8 @@
 """LLM adapter tests with HTTP and SDK calls mocked; no Ollama server or Gemini API is contacted."""
 
 import json
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from types import SimpleNamespace
 
 import pytest
@@ -154,3 +156,80 @@ def test_provider_none_disables_gemini_too():
 def test_gemini_provider_without_key_is_reported():
     llm, status = get_client("gemini", "", gemini_api_key=None)
     assert llm is None and "GEMINI_API_KEY is not set" in status
+
+
+class FakeGeminiServer:
+    """Local HTTP server that fails with `status` for the first `failures` requests, then answers."""
+
+    def __init__(self, failures: int, status: int = 503):
+        self.failures, self.status, self.requests = failures, status, 0
+        server = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                server.requests += 1
+                if server.requests <= server.failures:
+                    code, body = server.status, {"error": {"code": server.status, "message": "busy", "status": "UNAVAILABLE"}}
+                else:
+                    text = json.dumps({"semantic_query": "rim protector"})
+                    code, body = 200, {"candidates": [{"content": {"role": "model", "parts": [{"text": text}]}, "finishReason": "STOP"}]}
+                payload = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args):
+                pass
+
+        self.httpd = HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.httpd.server_port}/"
+
+    def client(self):
+        return GeminiClient(
+            "gemini-test", api_key="test-key", base_url=self.url,
+            retry_initial_delay=0.01, retry_max_delay=0.02, retry_jitter=0.01,
+        )
+
+
+@pytest.fixture
+def fake_gemini_server():
+    servers = []
+
+    def start(failures, status=503):
+        servers.append(FakeGeminiServer(failures, status))
+        return servers[-1]
+
+    yield start
+    for server in servers:
+        server.httpd.shutdown()
+
+
+def test_gemini_retries_overloaded_requests_then_succeeds(fake_gemini_server):
+    server = fake_gemini_server(failures=2)
+    plan = server.client().parse("system", "question", LLMSearchPlan)
+    assert plan.semantic_query == "rim protector"
+    assert server.requests == 3
+
+
+def test_gemini_gives_up_after_three_retries(fake_gemini_server):
+    server = fake_gemini_server(failures=10)
+    with pytest.raises(LLMError, match=r"503\) after 3 retries"):
+        server.client().parse("system", "question", LLMSearchPlan)
+    assert server.requests == 4
+
+
+def test_gemini_retries_rate_limits(fake_gemini_server):
+    server = fake_gemini_server(failures=1, status=429)
+    server.client().parse("system", "question", LLMSearchPlan)
+    assert server.requests == 2
+
+
+def test_gemini_does_not_retry_bad_requests(fake_gemini_server):
+    server = fake_gemini_server(failures=10, status=400)
+    with pytest.raises(LLMError, match="400"):
+        server.client().parse("system", "question", LLMSearchPlan)
+    assert server.requests == 1

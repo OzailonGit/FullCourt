@@ -80,15 +80,43 @@ class OllamaClient:
 
 
 class GeminiClient:
-    """Calls Gemini with the Pydantic model's JSON schema as the required response format."""
+    """Calls Gemini with the Pydantic model's JSON schema as the required response format.
 
-    def __init__(self, model: str, api_key: str):
+    The SDK makes a single attempt unless told otherwise, so a brief overload (503) or rate limit
+    (429) would go straight to the fallback. Those two statuses are retried up to
+    GEMINI_RETRIES times with exponential backoff (about 1, 2 and 4 seconds by default).
+    """
+
+    RETRYABLE_STATUS_CODES = (429, 503)
+    GEMINI_RETRIES = 3
+
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        *,
+        retry_initial_delay: float = 1.0,
+        retry_max_delay: float = 4.0,
+        retry_jitter: float = 0.5,
+        base_url: str | None = None,
+    ):
         from google import genai
         from google.genai import errors, types
 
         self._errors = errors
         self._types = types
-        self.client = genai.Client(api_key=api_key)
+        self.http_options = types.HttpOptions(
+            base_url=base_url,
+            retry_options=types.HttpRetryOptions(
+                attempts=self.GEMINI_RETRIES + 1,  # the SDK counts the first call as an attempt
+                initial_delay=retry_initial_delay,
+                max_delay=retry_max_delay,
+                exp_base=2,
+                jitter=retry_jitter,
+                http_status_codes=list(self.RETRYABLE_STATUS_CODES),
+            ),
+        )
+        self.client = genai.Client(api_key=api_key, http_options=self.http_options)
         self.model = model
         self.name = f"gemini:{model}"
 
@@ -104,9 +132,11 @@ class GeminiClient:
             response = self.client.models.generate_content(model=self.model, contents=user, config=config)
         except self._errors.ClientError as e:
             # Only the status goes into the message because it is shown in the UI; the body stays in the traceback.
-            raise LLMError(f"Gemini rejected the request ({e.code} {e.status})") from e
+            retried = f" after {self.GEMINI_RETRIES} retries" if e.code in self.RETRYABLE_STATUS_CODES else ""
+            raise LLMError(f"Gemini rejected the request ({e.code} {e.status}){retried}") from e
         except self._errors.ServerError as e:
-            raise LLMError(f"Gemini server error ({e.code})") from e
+            retried = f" after {self.GEMINI_RETRIES} retries" if e.code in self.RETRYABLE_STATUS_CODES else ""
+            raise LLMError(f"Gemini server error ({e.code}){retried}") from e
         except Exception as e:  # network failures surface as httpx exceptions
             raise LLMError("Could not reach Gemini") from e
 
