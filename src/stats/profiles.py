@@ -1,6 +1,6 @@
 """Write a plain-language style profile for every player from their own statistics.
 
-These profiles give semantic search something to match for players who have no Wikipedia profile.
+These profiles are the text that semantic search runs over, and every player gets one.
 They are not scouting text: every sentence restates a number from the database, and the style tags
 at the end come from fixed percentile rules (STYLE_TAG_RULES) applied against rotation players
 (the default eligibility pool). Tags are only added for players in that pool, because rate stats

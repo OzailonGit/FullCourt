@@ -195,5 +195,5 @@ for player in result.results:
                     f"{passage.description_type} · {passage.license} · similarity {passage.similarity:.2f} · `{passage.document_id}`"
                 )
 
-st.caption("Statistics: Basketball-Reference. Style descriptions: Wikipedia player-profile sections (CC BY-SA 4.0). "
-           "Descriptions summarize a player's career and may not reflect the selected season.")
+st.caption("Statistics: Basketball-Reference. Style profiles: written from the same season's statistics by a "
+           "fixed template, not scouting text.")

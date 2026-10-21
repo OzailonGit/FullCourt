@@ -11,12 +11,13 @@ Normalization
   metric is NULL for a player the remaining metric weights are renormalized; if all are NULL the
   goal score is missing. Direction "low" uses 1 - s; "moderate" uses 1 - 2|s - 0.5|.
 * Statistical fit: unweighted mean of the available goal scores.
-* Semantic relevance: for each type of text (encyclopedia passages, stat-based profiles), the
-  player's best passage similarity is min-max scaled across the candidates that have that type.
-  The player's score is the mean over the types they have. Scaling per type matters because
-  prose and number-heavy profiles land in different similarity ranges, and averaging means having
-  an extra type of text neither helps nor hurts on average. Players with no text at all get 0
-  ("zero" policy) or the median scaled score ("neutral" policy).
+* Semantic relevance: for each type of text in the index, the player's best passage similarity is
+  min-max scaled across the candidates that have that type, and the player's score is the mean over
+  the types they have. Today the index holds only stat-based profiles, so this is plain min-max
+  scaling. Scaling per type matters as soon as a second source is added: prose and number-heavy
+  profiles land in different similarity ranges, and averaging means having an extra type of text
+  neither helps nor hurts on average. Players with no text at all get 0 ("zero" policy) or the
+  median scaled score ("neutral" policy).
 * Final score: stat_weight * stat_fit + semantic_weight * semantic. When one component is
   unavailable for the whole query (no statistical goals, or no descriptions), the other carries
   full weight and the breakdown says so.

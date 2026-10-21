@@ -100,10 +100,10 @@ def test_upper_bound_filter_ranks_fewer_turnovers_first():
 
 def test_semantic_scores_are_scaled_per_description_type_and_averaged():
     evidence = [
-        {"encyclopedia": 0.80, "stat-based profile": 0.60},  # top prose match, weakest profile
+        {"written description": 0.80, "stat-based profile": 0.60},  # top prose match, weakest profile
         {"stat-based profile": 0.70},                          # best profile, no prose
         {"stat-based profile": 0.65},
-        {"encyclopedia": 0.70, "stat-based profile": 0.65},
+        {"written description": 0.70, "stat-based profile": 0.65},
     ]
     scaled = ranking.scale_semantic(evidence, "zero")
     assert scaled[1] == pytest.approx(1.0)
