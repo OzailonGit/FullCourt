@@ -10,5 +10,6 @@ data/processed/*.faiss
 data/processed/*.meta.json
 .DS_Store
 
-# Markdown files are kept local and not committed.
+# Markdown files are kept local and not committed, except the README.
 *.md
+!README.md
