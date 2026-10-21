@@ -45,6 +45,34 @@ CREATE TABLE IF NOT EXISTS player_season_stats (
     steal_rate                    REAL,
     block_rate                    REAL,
     box_plus_minus                REAL,            -- points per 100 possessions, not a fraction
+    -- shooting table: where shots come from and how they are created
+    average_shot_distance         REAL,            -- feet
+    shot_share_0_3ft              REAL,            -- share of field-goal attempts
+    shot_share_3_10ft             REAL,
+    shot_share_10_16ft            REAL,
+    shot_share_16ft_to_3pt        REAL,
+    three_point_attempt_rate      REAL,            -- share of field-goal attempts that are threes
+    fg_pct_0_3ft                  REAL,
+    fg_pct_3_10ft                 REAL,
+    fg_pct_10_16ft                REAL,
+    fg_pct_16ft_to_3pt            REAL,
+    assisted_share_2pt            REAL,            -- share of made twos that were assisted
+    assisted_share_3pt            REAL,            -- share of made threes that were assisted
+    dunk_share                    REAL,            -- share of field-goal attempts that are dunks
+    corner_three_share            REAL,            -- share of three-point attempts from the corners
+    corner_three_pct              REAL,
+    -- play-by-play table: estimated position split and drawn/committed events
+    minutes_share_pg              REAL,
+    minutes_share_sg              REAL,
+    minutes_share_sf              REAL,
+    minutes_share_pf              REAL,
+    minutes_share_c               REAL,
+    shooting_fouls_drawn_per_game REAL,
+    and_ones_per_game             REAL,
+    charges_drawn_per_game        REAL,            -- offensive fouls drawn
+    bad_pass_turnovers_per_game   REAL,
+    lost_ball_turnovers_per_game  REAL,
+    points_created_by_assists_per_game REAL,
     source_name                   TEXT NOT NULL,
     source_url                    TEXT NOT NULL,
     retrieved_at                  TEXT NOT NULL,
@@ -79,4 +107,21 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _add_missing_columns(conn)
     conn.commit()
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    """Bring a database created by an older version of SCHEMA up to date.
+
+    CREATE TABLE IF NOT EXISTS leaves existing tables untouched, so new columns are added here.
+    """
+    reference = sqlite3.connect(":memory:")
+    reference.executescript(SCHEMA)
+    tables = [row[0] for row in reference.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+    for table in tables:
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for _, name, column_type, *_ in reference.execute(f"PRAGMA table_info({table})"):
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {column_type}")
+    reference.close()
