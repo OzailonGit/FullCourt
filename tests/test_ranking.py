@@ -73,3 +73,26 @@ def test_profile_similarity_prefers_closest_profile():
     far = {"points_per_game": 6, "usage_rate": 0.12, "assist_rate": 0.05}
     sims = ranking.profile_similarity([near, far], reference)
     assert sims[0] > sims[1]
+
+
+def test_shot_creation_favors_unassisted_scorers():
+    creator = {"assisted_share_2pt": 0.10, "assisted_share_3pt": 0.30, "usage_rate": 0.30}
+    finisher = {"assisted_share_2pt": 0.85, "assisted_share_3pt": 0.95, "usage_rate": 0.30}
+    scores = ranking.goal_scores([creator, finisher], [Preference(goal=Goal.shot_creation)])
+    assert scores[0][0].score > scores[1][0].score
+    evidence = {m.metric: m for m in scores[0][0].metrics}
+    assert evidence["assisted_share_2pt"].lower_is_better
+    assert evidence["assisted_share_2pt"].percentile == pytest.approx(0.0)  # raw: lowest value in the pool
+
+
+def test_spot_up_shooting_favors_assisted_threes():
+    spot_up = {"assisted_share_3pt": 0.95, "three_point_pct": 0.38, "corner_three_share": 0.4, "three_point_attempt_rate": 0.7}
+    pull_up = {"assisted_share_3pt": 0.30, "three_point_pct": 0.38, "corner_three_share": 0.05, "three_point_attempt_rate": 0.7}
+    scores = ranking.goal_scores([spot_up, pull_up], [Preference(goal=Goal.spot_up_shooting)])
+    assert scores[0][0].score > scores[1][0].score
+
+
+def test_upper_bound_filter_ranks_fewer_turnovers_first():
+    candidates = [{"turnovers_per_game": 1.0}, {"turnovers_per_game": 2.5}]
+    scores = ranking.metric_goal_scores(candidates, {"turnovers_per_game": "low"})
+    assert scores[0][0].score > scores[1][0].score

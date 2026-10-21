@@ -74,9 +74,14 @@ PREFERENCE_RULES: list[tuple[str, Goal, str]] = [
     (r"playmak|\bpass(?:er|ers|ing)\b|assists?\b|set(?:s|ting)? up teammates|create (?:opportunities|shots|looks) for (?:teammates|others)|create for (?:teammates|others)|facilitat|distribut|table[- ]setter", Goal.playmaking, "high"),
     (r"create (?:their|his) own (?:shot|shots|offense)|self[- ]creat|shot[- ]creat|off the dribble|isolation|\biso\b|pull[- ]?ups?|create advantages|advantage creat|on[- ]ball creat", Goal.shot_creation, "high"),
     (r"take care of the ball|ball security|low[- ]turnover|few turnovers|protect the ball|don'?t turn (?:it|the ball) over", Goal.ball_security, "high"),
-    (r"three[- ]point shoot|3[- ]point shoot|\bshooters?\b|shooting from (?:three|deep|range)|from deep|floor spac|\bspacing\b|stretch (?:big|four|five)|knock down (?:threes|shots)", Goal.three_point_shooting, "high"),
+    (r"three[- ]point shoot|3[- ]point shoot|\bshooters?\b|shooting from (?:three|deep|range)|from deep|floor spac|spac(?:e|es|ing) the floor|\bspacing\b|stretch (?:big|four|five)|knock down (?:threes|shots)", Goal.three_point_shooting, "high"),
     (r"rebound|crash(?:es|ing)? the glass|on the glass|\bboards\b", Goal.rebounding, "high"),
-    (r"defen|steals|blocks|rim protect|shot[- ]block|\bstocks\b|disrupt", Goal.defense_activity, "high"),
+    (r"defen|steals|blocks|rim protect|shot[- ]block|\bstocks\b|disrupt|3[- ]and[- ]d|three[- ]and[- ]d", Goal.defense_activity, "high"),
+    (r"spot[- ]?up|catch[- ]and[- ]shoot|corner (?:three|3)s?|3[- ]and[- ]d|three[- ]and[- ]d", Goal.spot_up_shooting, "high"),
+    (r"attack(?:s|ing)? the (?:rim|basket)|rim pressure|\bdriv(?:e|es|er|ers|ing)\b|slash|get(?:s|ting)? to the (?:line|rim)|draw(?:s|ing)? fouls|downhill|paint touches", Goal.rim_pressure, "high"),
+    (r"rim[- ]?run|\blobs?\b|roll man|rolls? to the (?:rim|basket)|vertical spacer|above the rim|dunk|finish(?:es|er|ers|ing)? at the rim", Goal.rim_finishing, "high"),
+    (r"post[- ]?ups?\b|post scor|in the post|low post|back to the basket|post moves|\bpost players?\b", Goal.post_scoring, "high"),
+    (r"mid[- ]?range|\belbows?\b|long twos?", Goal.midrange_scoring, "high"),
 ]
 
 UNSUPPORTED_RULES: list[tuple[str, str]] = [

@@ -120,3 +120,16 @@ def test_llm_plan_is_validated_defaulted_and_deduplicated():
     assert plan.parser == "llm"
     assert plan.season == SEASON and plan.season_was_defaulted
     assert [(p.goal, p.direction) for p in plan.preferences] == [(Goal.playmaking, "high")]
+
+
+@pytest.mark.parametrize(
+    "question, expected",
+    [
+        ("Three-and-D wings who space the floor and defend", {Goal.spot_up_shooting, Goal.defense_activity, Goal.three_point_shooting}),
+        ("Rim-running bigs who catch lobs", {Goal.rim_finishing}),
+        ("Guards who attack the rim and get to the line", {Goal.rim_pressure}),
+        ("Post scorers who hit mid-range jumpers", {Goal.scoring_volume, Goal.post_scoring, Goal.midrange_scoring}),
+    ],
+)
+def test_style_goals_from_play_type_language(question, expected):
+    assert set(goals(parse_rules(question, SEASON).plan)) == expected

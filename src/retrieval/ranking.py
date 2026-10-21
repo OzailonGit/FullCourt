@@ -3,8 +3,10 @@
 Normalization
 -------------
 * Statistics: percentile rank within the candidate pool (after hard filters and eligibility), using
-  average ranks for ties: (rank - 1) / (n - 1), in [0, 1]. Metrics where lower is better (turnover
-  rate) are inverted. Percentiles make metrics on different scales comparable and blunt outliers.
+  average ranks for ties: (rank - 1) / (n - 1), in [0, 1]. Percentiles make metrics on different
+  scales comparable and blunt outliers. Evidence keeps the raw percentile (a high value is a high
+  percentile); scoring uses 1 - p for metrics where lower fits better, either always (turnovers) or
+  for one goal (a low assisted share means self-creation).
 * Goal score: weighted mean of its metric percentiles (weights in schemas.GOALS sum to 1). If a
   metric is NULL for a player the remaining metric weights are renormalized; if all are NULL the
   goal score is missing. Direction "low" uses 1 - s; "moderate" uses 1 - 2|s - 0.5|.
@@ -38,6 +40,10 @@ PROFILE_METRICS = [
     "rebound_rate",
     "steal_rate",
     "block_rate",
+    "shot_share_0_3ft",
+    "three_point_attempt_rate",
+    "assisted_share_2pt",
+    "dunk_share",
 ]
 
 
@@ -45,7 +51,8 @@ PROFILE_METRICS = [
 class MetricEvidence:
     metric: str
     value: float | None
-    percentile: float | None
+    percentile: float | None  # raw: the highest value in the pool is 1.0
+    lower_is_better: bool = False
 
 
 @dataclass
@@ -97,13 +104,8 @@ def apply_direction(score: float, direction: Direction) -> float:
 
 
 def metric_percentiles(candidates: list[dict], metric_names: set[str]) -> dict[str, list[float | None]]:
-    """Percentile per metric, oriented so that 1.0 is 'better' (turnover rate is inverted)."""
-    out = {}
-    for name in metric_names:
-        metric = METRICS[name]
-        ranks = percentile_ranks([c.get(metric.column) for c in candidates])
-        out[name] = ranks if metric.higher_is_better else [None if r is None else 1.0 - r for r in ranks]
-    return out
+    """Raw percentile per metric: the highest value in the pool gets 1.0."""
+    return {name: percentile_ranks([c.get(METRICS[name].column) for c in candidates]) for name in metric_names}
 
 
 def goal_scores(candidates: list[dict], preferences: list[Preference]) -> list[list[GoalBreakdown]]:
@@ -116,10 +118,11 @@ def goal_scores(candidates: list[dict], preferences: list[Preference]) -> list[l
             definition = GOALS[pref.goal]
             evidence, weighted, total_weight = [], 0.0, 0.0
             for name, weight in definition.metrics.items():
-                p = pct[name][i]
-                evidence.append(MetricEvidence(name, candidate.get(METRICS[name].column), p))
-                if p is not None:
-                    weighted += weight * p
+                raw = pct[name][i]
+                lower_is_better = not METRICS[name].higher_is_better or name in definition.lower_is_better
+                evidence.append(MetricEvidence(name, candidate.get(METRICS[name].column), raw, lower_is_better))
+                if raw is not None:
+                    weighted += weight * (1.0 - raw if lower_is_better else raw)
                     total_weight += weight
             score = apply_direction(weighted / total_weight, pref.direction) if total_weight else None
             breakdowns.append(GoalBreakdown(pref.goal.value, pref.direction, score, evidence, definition.proxy_note))
@@ -128,7 +131,11 @@ def goal_scores(candidates: list[dict], preferences: list[Preference]) -> list[l
 
 
 def metric_goal_scores(candidates: list[dict], directions: dict[str, Direction]) -> list[list[GoalBreakdown]]:
-    """One single-metric goal per metric, used when the user gave filters but no ranking preference."""
+    """One single-metric goal per metric, used when the user gave filters but no ranking preference.
+
+    The direction comes from the filter itself ("under 2 turnovers" ranks fewer turnovers first), so
+    raw percentiles are used here without the metric's usual orientation.
+    """
     pct = metric_percentiles(candidates, set(directions))
     return [
         [
@@ -136,7 +143,7 @@ def metric_goal_scores(candidates: list[dict], directions: dict[str, Direction])
                 f"metric:{name}",
                 direction,
                 None if pct[name][i] is None else apply_direction(pct[name][i], direction),
-                [MetricEvidence(name, candidate.get(METRICS[name].column), pct[name][i])],
+                [MetricEvidence(name, candidate.get(METRICS[name].column), pct[name][i], direction == "low")],
             )
             for name, direction in directions.items()
         ]

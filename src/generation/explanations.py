@@ -49,8 +49,11 @@ def ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
-def percentile_text(p: float | None) -> str:
-    return "not available" if p is None else f"{ordinal(round(p * 100))} percentile"
+def percentile_text(p: float | None, lower_is_better: bool = False) -> str:
+    if p is None:
+        return "not available"
+    text = f"{ordinal(round(p * 100))} percentile"
+    return f"{text}, lower is better here" if lower_is_better else text
 
 
 def goal_label(goal: str, direction: str) -> str:
@@ -95,7 +98,7 @@ def evidence_package(result: SearchResult, player: PlayerResult) -> dict:
                 "goal": goal_label(g.goal, g.direction),
                 "score": None if g.score is None else f"{g.score:.2f}",
                 "metrics": {
-                    METRICS[m.metric].label: {"value": format_stat(m.metric, m.value), "pool_rank": percentile_text(m.percentile)}
+                    METRICS[m.metric].label: {"value": format_stat(m.metric, m.value), "pool_rank": percentile_text(m.percentile, m.lower_is_better)}
                     for m in g.metrics
                 },
                 **({"proxy_note": g.proxy_note} if g.proxy_note else {}),
@@ -126,7 +129,7 @@ def template_explanation(result: SearchResult, player: PlayerResult) -> Explanat
     for g in b.goals:
         if g.metrics:
             facts = ", ".join(
-                f"{METRICS[m.metric].label} {format_stat(m.metric, m.value)} ({percentile_text(m.percentile)})"
+                f"{METRICS[m.metric].label} {format_stat(m.metric, m.value)} ({percentile_text(m.percentile, m.lower_is_better)})"
                 for m in g.metrics
             )
             parts.append(f"{_sentence_case(goal_label(g.goal, g.direction))}: {facts}.")

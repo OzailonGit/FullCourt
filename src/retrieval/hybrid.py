@@ -224,4 +224,6 @@ def format_stat(metric: str, value: float | None) -> str:
         return f"{value * 100:.1f}%"
     if unit == "count":
         return f"{int(value)}"
+    if unit == "feet":
+        return f"{value:.1f} ft"
     return f"{value:.1f}"

@@ -167,7 +167,7 @@ for player in result.results:
                         "goal score": goal_score,
                         "metric": METRICS[m.metric].label,
                         "value": format_stat(m.metric, m.value),
-                        "pool rank": percentile_text(m.percentile),
+                        "pool rank": percentile_text(m.percentile, m.lower_is_better),
                     })
             if goal_rows:
                 st.dataframe(pd.DataFrame(goal_rows), hide_index=True)

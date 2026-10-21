@@ -26,7 +26,7 @@ class Position(str, Enum):
 class Metric:
     column: str
     label: str
-    unit: Literal["per_game", "fraction", "count", "points_per_100"]
+    unit: Literal["per_game", "fraction", "count", "points_per_100", "feet"]
     higher_is_better: bool = True
 
 
@@ -53,6 +53,38 @@ METRICS: dict[str, Metric] = {
     "steal_rate": Metric("steal_rate", "Steal rate (STL%)", "fraction"),
     "block_rate": Metric("block_rate", "Block rate (BLK%)", "fraction"),
     "box_plus_minus": Metric("box_plus_minus", "Box Plus/Minus", "points_per_100"),
+    "average_shot_distance": Metric("average_shot_distance", "Average shot distance", "feet"),
+    "shot_share_0_3ft": Metric("shot_share_0_3ft", "Share of shots at 0-3 ft", "fraction"),
+    "shot_share_3_10ft": Metric("shot_share_3_10ft", "Share of shots at 3-10 ft", "fraction"),
+    "shot_share_10_16ft": Metric("shot_share_10_16ft", "Share of shots at 10-16 ft", "fraction"),
+    "shot_share_16ft_to_3pt": Metric("shot_share_16ft_to_3pt", "Share of shots from 16 ft to the arc", "fraction"),
+    "three_point_attempt_rate": Metric("three_point_attempt_rate", "Share of shots that are threes", "fraction"),
+    "fg_pct_0_3ft": Metric("fg_pct_0_3ft", "FG% at 0-3 ft", "fraction"),
+    "fg_pct_3_10ft": Metric("fg_pct_3_10ft", "FG% at 3-10 ft", "fraction"),
+    "fg_pct_10_16ft": Metric("fg_pct_10_16ft", "FG% at 10-16 ft", "fraction"),
+    "fg_pct_16ft_to_3pt": Metric("fg_pct_16ft_to_3pt", "FG% from 16 ft to the arc", "fraction"),
+    "assisted_share_2pt": Metric("assisted_share_2pt", "Share of made 2s assisted", "fraction"),
+    "assisted_share_3pt": Metric("assisted_share_3pt", "Share of made 3s assisted", "fraction"),
+    "dunk_share": Metric("dunk_share", "Share of shots that are dunks", "fraction"),
+    "corner_three_share": Metric("corner_three_share", "Share of 3PA from the corners", "fraction"),
+    "corner_three_pct": Metric("corner_three_pct", "Corner 3P%", "fraction"),
+    "minutes_share_pg": Metric("minutes_share_pg", "Minutes at PG (estimated)", "fraction"),
+    "minutes_share_sg": Metric("minutes_share_sg", "Minutes at SG (estimated)", "fraction"),
+    "minutes_share_sf": Metric("minutes_share_sf", "Minutes at SF (estimated)", "fraction"),
+    "minutes_share_pf": Metric("minutes_share_pf", "Minutes at PF (estimated)", "fraction"),
+    "minutes_share_c": Metric("minutes_share_c", "Minutes at C (estimated)", "fraction"),
+    "shooting_fouls_drawn_per_game": Metric("shooting_fouls_drawn_per_game", "Shooting fouls drawn per game", "per_game"),
+    "and_ones_per_game": Metric("and_ones_per_game", "And-ones per game", "per_game"),
+    "charges_drawn_per_game": Metric("charges_drawn_per_game", "Charges drawn per game", "per_game"),
+    "bad_pass_turnovers_per_game": Metric(
+        "bad_pass_turnovers_per_game", "Bad-pass turnovers per game", "per_game", higher_is_better=False
+    ),
+    "lost_ball_turnovers_per_game": Metric(
+        "lost_ball_turnovers_per_game", "Lost-ball turnovers per game", "per_game", higher_is_better=False
+    ),
+    "points_created_by_assists_per_game": Metric(
+        "points_created_by_assists_per_game", "Points created by assists per game", "per_game"
+    ),
 }
 
 
@@ -65,6 +97,11 @@ class Goal(str, Enum):
     three_point_shooting = "three_point_shooting"
     rebounding = "rebounding"
     defense_activity = "defense_activity"
+    rim_pressure = "rim_pressure"
+    rim_finishing = "rim_finishing"
+    spot_up_shooting = "spot_up_shooting"
+    post_scoring = "post_scoring"
+    midrange_scoring = "midrange_scoring"
 
 
 @dataclass(frozen=True)
@@ -74,6 +111,9 @@ class GoalDefinition:
     # that measure the same construct (e.g. AST and AST%) are averaged, not double-counted.
     metrics: dict[str, float]
     proxy_note: str | None = None
+    # Metrics where a lower value fits this goal better. Direction depends on the goal, not the metric:
+    # a low assisted share means self-creation, while a high one means a catch-and-shoot role.
+    lower_is_better: frozenset[str] = frozenset()
 
 
 GOALS: dict[Goal, GoalDefinition] = {
@@ -85,17 +125,42 @@ GOALS: dict[Goal, GoalDefinition] = {
     Goal.ball_security: GoalDefinition("Avoids turnovers", {"turnover_rate": 1.0}),
     Goal.shot_creation: GoalDefinition(
         "Creates their own shot",
-        {"usage_rate": 1.0},
-        proxy_note="The dataset has no unassisted-shot data; usage rate is used as a proxy for on-ball creation load.",
+        {"assisted_share_2pt": 0.35, "assisted_share_3pt": 0.25, "usage_rate": 0.4},
+        proxy_note="Unassisted makes also include putbacks and transition finishes, so usage rate is blended in "
+        "to favor players who create on the ball.",
+        lower_is_better=frozenset({"assisted_share_2pt", "assisted_share_3pt"}),
     ),
     Goal.three_point_shooting: GoalDefinition(
         "Shoots threes accurately and often", {"three_point_pct": 0.5, "three_point_attempts_per_game": 0.5}
     ),
     Goal.rebounding: GoalDefinition("Rebounds", {"rebound_rate": 0.5, "rebounds_per_game": 0.5}),
     Goal.defense_activity: GoalDefinition(
-        "Generates steals and blocks",
-        {"steal_rate": 0.5, "block_rate": 0.5},
-        proxy_note="Box-score defense (steals, blocks) captures activity, not overall defensive impact.",
+        "Generates steals, blocks and charges",
+        {"steal_rate": 0.4, "block_rate": 0.4, "charges_drawn_per_game": 0.2},
+        proxy_note="Steals, blocks and charges capture defensive activity, not overall defensive impact.",
+    ),
+    Goal.rim_pressure: GoalDefinition(
+        "Attacks the rim and draws fouls",
+        {"shot_share_0_3ft": 0.4, "shooting_fouls_drawn_per_game": 0.4, "and_ones_per_game": 0.2},
+    ),
+    Goal.rim_finishing: GoalDefinition(
+        "Finishes at the rim off teammates' passes (rim runner, lob threat)",
+        {"dunk_share": 0.4, "fg_pct_0_3ft": 0.3, "assisted_share_2pt": 0.3},
+        proxy_note="There is no play-type data; dunks and assisted finishes near the rim stand in for "
+        "rolls and lobs.",
+    ),
+    Goal.spot_up_shooting: GoalDefinition(
+        "Spot-up and catch-and-shoot three-point shooting",
+        {"assisted_share_3pt": 0.3, "three_point_pct": 0.3, "corner_three_share": 0.2, "three_point_attempt_rate": 0.2},
+    ),
+    Goal.post_scoring: GoalDefinition(
+        "Scores in the post and close to the basket",
+        {"shot_share_3_10ft": 0.6, "fg_pct_3_10ft": 0.4},
+        proxy_note="There is no post-up data; shots from 3-10 ft also include floaters and short hooks.",
+    ),
+    Goal.midrange_scoring: GoalDefinition(
+        "Scores from mid-range",
+        {"shot_share_10_16ft": 0.3, "shot_share_16ft_to_3pt": 0.3, "fg_pct_10_16ft": 0.2, "fg_pct_16ft_to_3pt": 0.2},
     ),
 }
 
